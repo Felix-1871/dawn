@@ -33,9 +33,33 @@ mkdir -p "$PROFILE/airootfs/usr/local/bin"
 cp target/release/dawn-backend "$PROFILE/airootfs/usr/local/bin/dawn-backend"
 chmod +x "$PROFILE/airootfs/usr/local/bin/dawn-backend"
 
+# Modern releng's live session is just root, auto-logged in — no
+# separate live user (see DECISIONS.md). The real LuminOS ISO has one
+# named "luminos" (confirmed by the user), which offline_cleanup's
+# `userdel -r luminos` expects to exist, so this test image needs one
+# too. releng's own airootfs already overrides /etc/passwd and
+# /etc/shadow (with just a root entry), so appending is safe here —
+# unlike /etc/group, which releng doesn't override, so creating one
+# from scratch would replace the live system's real one instead of
+# adding to it.
+echo "luminos:x:1000:1000:LuminOS live user:/home/luminos:/usr/bin/bash" \
+  >> "$PROFILE/airootfs/etc/passwd"
+echo "luminos:!:1::::::" >> "$PROFILE/airootfs/etc/shadow"
+mkdir -p "$PROFILE/airootfs/home/luminos"
+
 if [ -n "$MIRROR_SNIPPET" ]; then
+  # This overlay file replaces the live image's own /etc/pacman.conf
+  # wholesale (mkarchiso applies airootfs/ on top of the packages
+  # already installed into the image, so whatever we put here wins) —
+  # it can't just be the mirror snippet appended to nothing, or pacman
+  # loses its [options] section and Architecture setting.
   mkdir -p "$PROFILE/airootfs/etc"
-  cat "$MIRROR_SNIPPET" >> "$PROFILE/airootfs/etc/pacman.conf"
+  {
+    echo "[options]"
+    echo "Architecture = auto"
+    echo
+    cat "$MIRROR_SNIPPET"
+  } > "$PROFILE/airootfs/etc/pacman.conf"
 fi
 
 # A template unit so the target device (passed as the instance name) ends

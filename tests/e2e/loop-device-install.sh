@@ -32,14 +32,21 @@ BY_ID_LINK="/dev/disk/by-id/dawn-loopdev-test"
 cleanup() {
   umount -R /mnt/verify 2>/dev/null || true
   umount -R /mnt/target 2>/dev/null || true
-  rm -f "$BY_ID_LINK"
+  rm -f "$BY_ID_LINK" "${BY_ID_LINK}-part1" "${BY_ID_LINK}-part2"
   losetup -d "$LOOP_DEV" 2>/dev/null || true
   rm -f "$DISK_IMAGE"
 }
 trap cleanup EXIT
 
+# A plain container has no udev running to create these itself (unlike
+# real hardware, or a real VM's guest — see build-test-iso.sh). Erase
+# mode always addresses partitions as <device>-part1/-part2 (SPEC.md:
+# disks are addressed by /dev/disk/by-id/ paths), so dawn-backend needs
+# these to exist before it can partition and format anything.
 mkdir -p /dev/disk/by-id
 ln -sf "$LOOP_DEV" "$BY_ID_LINK"
+ln -sf "${LOOP_DEV}p1" "${BY_ID_LINK}-part1"
+ln -sf "${LOOP_DEV}p2" "${BY_ID_LINK}-part2"
 
 if [ -n "$MIRROR_SNIPPET" ]; then
   cat "$MIRROR_SNIPPET" >> /etc/pacman.conf

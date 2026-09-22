@@ -152,6 +152,25 @@ Newest first.
   integration exists; the plain-Arch substitution is scoped to
   `tests/e2e/` only and never touches the pipeline itself.
 
+- **The test image gets a real `luminos` user added to its
+  `passwd`/`shadow` overlay**, since modern releng's live session is
+  just root (auto-logged in, no separate account at all) — without
+  this, `offline_cleanup`'s `userdel -r luminos` has nothing to delete
+  and fails outright.
+
+- **Known, accepted gap: `offline_cleanup`'s
+  `pacman -Rns luminos-dawn mkinitcpio-archiso` will still fail in the
+  e2e test**, because `luminos-dawn` isn't a real installed package on
+  the plain-Arch stand-in image (`pacman -R` aborts entirely if any
+  named target isn't found — it doesn't partially succeed). Building a
+  throwaway package just to satisfy this is possible (`makepkg` plus a
+  local `file://` repo) but adds meaningful complexity for a test-only
+  fixture problem, not a Dawn pipeline bug — the online path never
+  exercises `offline_cleanup` at all. Deferred rather than guessed at
+  further without seeing whether anything else needs fixing first; the
+  online e2e path is unaffected and is where this PR's first real CI
+  attention goes.
+
 - **The loop-device integration test only covers the online
   (pacstrap) path.** The offline path unsquashes a path
   (`SQUASHFS_IMAGE` in `backend/src/adapters/arch.rs`) that only exists

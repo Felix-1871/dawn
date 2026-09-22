@@ -15,13 +15,19 @@
 # PACKAGES below for the real meta-packages once luminos-repository
 # exists; see DECISIONS.md.
 #
-# Usage: setup-local-mirror.sh <output-dir>
+# Usage: setup-local-mirror.sh <output-dir> [server-host]
 # Serves the repo over HTTP on port 8080 in the background; prints the
 # server's PID to stdout on the last line so the caller can stop it.
+#
+# server-host is what pacman.conf.snippet tells clients to connect to,
+# and it depends on who's connecting: a plain container reaches this
+# same host at 127.0.0.1 (the default), while a QEMU guest must instead
+# use 10.0.2.2, SLIRP's address for the host running QEMU.
 
 set -euo pipefail
 
-OUT_DIR="${1:?usage: setup-local-mirror.sh <output-dir>}"
+OUT_DIR="${1:?usage: setup-local-mirror.sh <output-dir> [server-host]}"
+SERVER_HOST="${2:-127.0.0.1}"
 PACKAGES=(base linux mkinitcpio)
 REPO_NAME="dawnlocal"
 
@@ -49,7 +55,7 @@ SERVER_PID="$(pgrep -f 'http.server 8080' | head -1)"
 cat > "$OUT_DIR/pacman.conf.snippet" <<EOF
 [$REPO_NAME]
 SigLevel = Optional TrustAll
-Server = http://10.0.2.2:8080
+Server = http://$SERVER_HOST:8080
 EOF
 
 echo "$SERVER_PID"
