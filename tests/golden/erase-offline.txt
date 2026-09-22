@@ -4,8 +4,8 @@ lsblk --json -o NAME,SIZE,MODEL,MOUNTPOINT /dev/disk/by-id/nvme-EXAMPLE_SERIAL
 ==> Step 2: Partition the disk
 sfdisk --wipe always /dev/disk/by-id/nvme-EXAMPLE_SERIAL
     <<< label: gpt
-size=1GiB, type=uefi, name="ESP"
-type=linux, name="root"
+    <<< size=1GiB, type=uefi, name="ESP"
+    <<< type=linux, name="root"
 partprobe /dev/disk/by-id/nvme-EXAMPLE_SERIAL
 ==> Step 3: Format and create btrfs subvolumes
 mkfs.fat -F32 -n ESP /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1
@@ -21,31 +21,55 @@ mount -o subvol=@home,compress=zstd /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 /m
 mkdir -p /mnt/target/boot
 mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1 /mnt/target/boot
 ==> Step 5: Install the base system
-unsquashfs -f -d /mnt/target /run/archiso/bootmnt/arch/x86_64/airootfs.sfs  # kernel is copied from the medium separately if /boot has none
+unsquashfs -f -d /mnt/target /run/archiso/bootmnt/arch/x86_64/airootfs.sfs
+copy /run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux to /mnt/target/boot/vmlinuz-linux (if missing)
 ==> Step 6: Remove live-only packages and files
 arch-chroot /mnt/target pacman -Rns --noconfirm luminos-dawn mkinitcpio-archiso
 arch-chroot /mnt/target userdel -r luminos
-write /mnt/target/etc/systemd/system/getty@tty1.service.d/autologin.conf  # remove (was the live session's autologin drop-in)
-write /mnt/target/etc/mkinitcpio.conf.d/archiso.conf  # remove (archiso-only mkinitcpio config)
+remove /mnt/target/etc/systemd/system/getty@tty1.service.d/autologin.conf
+remove /mnt/target/etc/mkinitcpio.conf.d/archiso.conf
 arch-chroot /mnt/target pacman-key --init
 arch-chroot /mnt/target pacman-key --populate archlinux luminos
 ==> Step 7: Write fstab, locale, keymap, timezone, hostname, zram
-genfstab -U /mnt/target  # appended to /mnt/target/etc/fstab
-write /mnt/target/etc/locale.gen  # uncomment en_US.UTF-8
+genfstab -U /mnt/target  # stdout appended to /mnt/target/etc/fstab
+uncomment "en_US.UTF-8 UTF-8" in /mnt/target/etc/locale.gen
 arch-chroot /mnt/target locale-gen
-write /mnt/target/etc/vconsole.conf  # KEYMAP=us
-write /mnt/target/etc/hostname  # ada-laptop
-write /mnt/target/etc/systemd/zram-generator.conf  # [zram0]
-write /mnt/target/etc/skel/.config/hypr/hyprland.conf  # kb_layout = us, kb_variant = 
+write /mnt/target/etc/vconsole.conf
+    <<< KEYMAP=us
+write /mnt/target/etc/hostname
+    <<< ada-laptop
+write /mnt/target/etc/systemd/zram-generator.conf
+    <<< [zram0]
+    <<< zram-size = ram / 2
+    <<< compression-algorithm = zstd
+write /mnt/target/etc/skel/.config/hypr/keyboard.conf
+    <<< input {
+    <<<     kb_layout = us
+    <<<     kb_variant = 
+    <<< }
 ==> Step 8: Create the user, lock root, enable sudo
 arch-chroot /mnt/target useradd -m -G wheel -c 'Ada Lovelace' -s /bin/bash ada
 arch-chroot /mnt/target chpasswd
     <<< [REDACTED]
 arch-chroot /mnt/target passwd -l root
-write /mnt/target/etc/sudoers.d/10-wheel  # %wheel ALL=(ALL:ALL) ALL
+write /mnt/target/etc/sudoers.d/10-wheel
+    <<< %wheel ALL=(ALL:ALL) ALL
 ==> Step 9: Build UKIs
-write /mnt/target/etc/kernel/cmdline  # root=/dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 rw
-write /mnt/target/etc/mkinitcpio.d/linux.preset  # default_uki and fallback_uki, systemd hooks + microcode
+write /mnt/target/etc/kernel/cmdline
+    <<< root=/dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 rw console=tty0 console=ttyS0,115200n8
+write /mnt/target/etc/mkinitcpio.d/linux.preset
+    <<< # mkinitcpio preset for the linux package — built by dawn-backend
+    <<< 
+    <<< ALL_kver="/boot/vmlinuz-linux"
+    <<< ALL_microcode=(/boot/*-ucode.img)
+    <<< 
+    <<< PRESETS=('default' 'fallback')
+    <<< 
+    <<< default_uki="/boot/EFI/Linux/arch-linux.efi"
+    <<< default_options="--cmdline /etc/kernel/cmdline"
+    <<< 
+    <<< fallback_uki="/boot/EFI/Linux/arch-linux-fallback.efi"
+    <<< fallback_options="-S autodetect --cmdline /etc/kernel/cmdline"
 arch-chroot /mnt/target mkinitcpio -P
 ==> Step 11: Install the bootloader
 arch-chroot /mnt/target bootctl install

@@ -7,7 +7,7 @@
 use plan::{DiskMode, InstallPlan, PartitionRole, Source};
 
 use crate::adapters::{Adapter, DiskLayout};
-use crate::runner::{Action, Invocation, Stdin};
+use crate::runner::{Action, Capture, Invocation, Stdin};
 
 pub const TARGET: &str = "/mnt/target";
 
@@ -300,24 +300,24 @@ fn step7_system_config(
     let mut actions = vec![
         Action::Run(
             Invocation::new("genfstab", ["-U", TARGET])
-                .with_note(format!("appended to {TARGET}/etc/fstab")),
+                .with_capture(Capture::AppendStdoutTo(format!("{TARGET}/etc/fstab"))),
         ),
-        Action::WriteFile {
+        Action::UncommentLine {
             path: format!("{TARGET}/etc/locale.gen"),
-            description: format!("uncomment {}", plan.locale),
+            pattern: format!("{} UTF-8", plan.locale),
         },
         Action::Run(arch_chroot(layout, ["locale-gen"])),
         Action::WriteFile {
             path: format!("{TARGET}/etc/vconsole.conf"),
-            description: format!("KEYMAP={}", plan.keyboard.layout),
+            content: format!("KEYMAP={}\n", plan.keyboard.layout),
         },
         Action::WriteFile {
             path: format!("{TARGET}/etc/hostname"),
-            description: plan.hostname.clone(),
+            content: format!("{}\n", plan.hostname),
         },
         Action::WriteFile {
             path: format!("{TARGET}/etc/systemd/zram-generator.conf"),
-            description: "[zram0]".to_string(),
+            content: "[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n".to_string(),
         },
     ];
 
@@ -363,7 +363,7 @@ fn step8_user(plan: &InstallPlan, layout: &DiskLayout, adapter: &dyn Adapter) ->
         Action::Run(arch_chroot(layout, ["passwd", "-l", "root"])),
         Action::WriteFile {
             path: format!("{TARGET}/etc/sudoers.d/10-{group}"),
-            description: format!("%{group} ALL=(ALL:ALL) ALL"),
+            content: format!("%{group} ALL=(ALL:ALL) ALL\n"),
         },
     ]
 }

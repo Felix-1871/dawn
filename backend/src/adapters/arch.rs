@@ -8,6 +8,11 @@ use plan::{InstallPlan, Source};
 use super::{Adapter, DiskLayout};
 use crate::runner::{Action, Invocation};
 
+/// Where the archiso medium keeps its kernel when it isn't in the
+/// squashfs image itself (SPEC.md: "copy `vmlinuz-linux` from the medium
+/// if the image has no kernel in `/boot`").
+const MEDIUM_KERNEL: &str = "/run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux";
+
 /// Path to the archiso squashfs image, from `installer.toml`'s
 /// `[source] squashfs` key (SPEC.md "Branding & configuration"). Config
 /// file loading isn't wired up until later, so M0 hardcodes the example
@@ -29,6 +34,29 @@ const LIVE_USER: &str = "luminos";
 /// overrides the config when the plan asks for autologin. See
 /// DECISIONS.md.
 const LOGIN_MANAGER: &str = "greetd";
+
+/// mkinitcpio preset naming the two UKIs systemd-boot will list
+/// automatically from `/boot/EFI/Linux/` (SPEC.md "Disk & bootloader":
+/// "systemd-boot lists UKIs there automatically, so no loader entries are
+/// written"). The HOOKS array that actually makes these UKIs
+/// systemd-based (base systemd autodetect microcode ... sd-vconsole ...)
+/// is luminos-base's own `/etc/mkinitcpio.conf`, not something Dawn picks
+/// per install — see DECISIONS.md.
+fn mkinitcpio_preset() -> String {
+    "# mkinitcpio preset for the linux package — built by dawn-backend\n\
+     \n\
+     ALL_kver=\"/boot/vmlinuz-linux\"\n\
+     ALL_microcode=(/boot/*-ucode.img)\n\
+     \n\
+     PRESETS=('default' 'fallback')\n\
+     \n\
+     default_uki=\"/boot/EFI/Linux/arch-linux.efi\"\n\
+     default_options=\"--cmdline /etc/kernel/cmdline\"\n\
+     \n\
+     fallback_uki=\"/boot/EFI/Linux/arch-linux-fallback.efi\"\n\
+     fallback_options=\"-S autodetect --cmdline /etc/kernel/cmdline\"\n"
+        .to_string()
+}
 
 pub struct ArchAdapter;
 
@@ -60,13 +88,16 @@ impl Adapter for ArchAdapter {
                 args.extend(plan.packages.iter().cloned());
                 vec![Action::Run(Invocation::new("pacstrap", args))]
             }
-            Source::Squashfs => vec![Action::Run(
-                Invocation::new(
+            Source::Squashfs => vec![
+                Action::Run(Invocation::new(
                     "unsquashfs",
                     ["-f", "-d", layout.target.as_str(), SQUASHFS_IMAGE],
-                )
-                .with_note("kernel is copied from the medium separately if /boot has none"),
-            )],
+                )),
+                Action::CopyIfMissing {
+                    source: MEDIUM_KERNEL.to_string(),
+                    destination: format!("{}/boot/vmlinuz-linux", layout.target),
+                },
+            ],
         }
     }
 
@@ -83,16 +114,14 @@ impl Adapter for ArchAdapter {
                 ],
             )),
             Action::Run(Self::chroot(layout, ["userdel", "-r", LIVE_USER])),
-            Action::WriteFile {
+            Action::RemoveFile {
                 path: format!(
                     "{}/etc/systemd/system/getty@tty1.service.d/autologin.conf",
                     layout.target
                 ),
-                description: "remove (was the live session's autologin drop-in)".to_string(),
             },
-            Action::WriteFile {
+            Action::RemoveFile {
                 path: format!("{}/etc/mkinitcpio.conf.d/archiso.conf", layout.target),
-                description: "remove (archiso-only mkinitcpio config)".to_string(),
             },
             Action::Run(Self::chroot(layout, ["pacman-key", "--init"])),
             Action::Run(Self::chroot(
@@ -103,10 +132,16 @@ impl Adapter for ArchAdapter {
     }
 
     fn keyboard_config(&self, plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
+        // Writes a dedicated, Dawn-owned file rather than the shared
+        // hyprland.conf: luminos-desktop's default config is expected to
+        // `source = ~/.config/hypr/keyboard.conf`, so this can be
+        // overwritten wholesale without touching keybinds, autostart, or
+        // anything else the user or luminos-desktop put in hyprland.conf.
+        // See DECISIONS.md.
         vec![Action::WriteFile {
-            path: format!("{}/etc/skel/.config/hypr/hyprland.conf", layout.target),
-            description: format!(
-                "kb_layout = {}, kb_variant = {}",
+            path: format!("{}/etc/skel/.config/hypr/keyboard.conf", layout.target),
+            content: format!(
+                "input {{\n    kb_layout = {}\n    kb_variant = {}\n}}\n",
                 plan.keyboard.layout, plan.keyboard.variant
             ),
         }]
@@ -120,11 +155,20 @@ impl Adapter for ArchAdapter {
         vec![
             Action::WriteFile {
                 path: format!("{}/etc/kernel/cmdline", layout.target),
-                description: format!("root={} rw", layout.root_device),
+                // A serial console alongside the primary tty is a
+                // harmless, common default (most distros ship one for
+                // debugging) — with no serial port present, its getty
+                // unit just never comes up. It's also what lets
+                // tests/e2e/qemu-run.sh watch for a login prompt over
+                // the serial console rather than a framebuffer.
+                content: format!(
+                    "root={} rw console=tty0 console=ttyS0,115200n8\n",
+                    layout.root_device
+                ),
             },
             Action::WriteFile {
                 path: format!("{}/etc/mkinitcpio.d/linux.preset", layout.target),
-                description: "default_uki and fallback_uki, systemd hooks + microcode".to_string(),
+                content: mkinitcpio_preset(),
             },
             Action::Run(Self::chroot(layout, ["mkinitcpio", "-P"])),
         ]
@@ -139,9 +183,20 @@ impl Adapter for ArchAdapter {
             Action::Run(Self::chroot(layout, ["systemctl", "enable", LOGIN_MANAGER])),
         ];
         if plan.user.autologin {
+            // greetd has no drop-in directory, so autologin means owning
+            // the whole file: `initial_session` runs once on the first VT
+            // without going through the greeter, while `default_session`
+            // (regreet, luminos-desktop's normal default) still handles
+            // any later login. Only written when autologin is chosen;
+            // otherwise luminos-desktop's own config.toml is left alone.
             actions.push(Action::WriteFile {
                 path: format!("{}/etc/greetd/config.toml", layout.target),
-                description: format!("autologin as {}", plan.user.username),
+                content: format!(
+                    "[terminal]\nvt = 1\n\n\
+                     [default_session]\ncommand = \"regreet\"\nuser = \"greeter\"\n\n\
+                     [initial_session]\ncommand = \"Hyprland\"\nuser = \"{}\"\n",
+                    plan.user.username
+                ),
             });
         }
         actions
