@@ -1,0 +1,200 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstallPlan",
+  "type": "object",
+  "required": [
+    "disk",
+    "hostname",
+    "keyboard",
+    "locale",
+    "secure_boot",
+    "source",
+    "timezone",
+    "user",
+    "version"
+  ],
+  "properties": {
+    "disk": {
+      "$ref": "#/definitions/Disk"
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "keyboard": {
+      "$ref": "#/definitions/Keyboard"
+    },
+    "locale": {
+      "type": "string"
+    },
+    "network_profile": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "packages": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "secure_boot": {
+      "$ref": "#/definitions/SecureBoot"
+    },
+    "source": {
+      "$ref": "#/definitions/Source"
+    },
+    "timezone": {
+      "type": "string"
+    },
+    "user": {
+      "$ref": "#/definitions/User"
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "Disk": {
+      "type": "object",
+      "required": [
+        "device",
+        "filesystem",
+        "mode"
+      ],
+      "properties": {
+        "device": {
+          "description": "A `/dev/disk/by-id/...` path — never a raw `/dev/sdX` or `/dev/nvmeXnY`, which a reboot can reassign to a different physical disk.",
+          "type": "string"
+        },
+        "filesystem": {
+          "$ref": "#/definitions/Filesystem"
+        },
+        "mode": {
+          "$ref": "#/definitions/DiskMode"
+        },
+        "partitions": {
+          "description": "Only meaningful (and required to be valid) in manual mode: the existing partitions to reuse, and where each one is mounted.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/PartitionAssignment"
+          }
+        }
+      }
+    },
+    "DiskMode": {
+      "type": "string",
+      "enum": [
+        "erase",
+        "manual"
+      ]
+    },
+    "Filesystem": {
+      "type": "string",
+      "enum": [
+        "btrfs"
+      ]
+    },
+    "Keyboard": {
+      "type": "object",
+      "required": [
+        "layout"
+      ],
+      "properties": {
+        "layout": {
+          "type": "string"
+        },
+        "variant": {
+          "default": "",
+          "type": "string"
+        }
+      }
+    },
+    "PartitionAssignment": {
+      "type": "object",
+      "required": [
+        "device",
+        "format",
+        "mount_point",
+        "role"
+      ],
+      "properties": {
+        "device": {
+          "description": "A `/dev/disk/by-id/...` (or `by-partuuid`) path to one existing partition on the target disk.",
+          "type": "string"
+        },
+        "format": {
+          "type": "boolean"
+        },
+        "mount_point": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/definitions/PartitionRole"
+        }
+      }
+    },
+    "PartitionRole": {
+      "type": "string",
+      "enum": [
+        "esp",
+        "root",
+        "other"
+      ]
+    },
+    "Redacted": {
+      "type": "string"
+    },
+    "SecureBoot": {
+      "type": "object",
+      "required": [
+        "enroll",
+        "microsoft_keys"
+      ],
+      "properties": {
+        "enroll": {
+          "type": "boolean"
+        },
+        "microsoft_keys": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Source": {
+      "type": "string",
+      "enum": [
+        "pacstrap",
+        "squashfs"
+      ]
+    },
+    "User": {
+      "type": "object",
+      "required": [
+        "full_name",
+        "password",
+        "username"
+      ],
+      "properties": {
+        "autologin": {
+          "default": false,
+          "type": "boolean"
+        },
+        "full_name": {
+          "type": "string"
+        },
+        "password": {
+          "$ref": "#/definitions/Redacted"
+        },
+        "username": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
