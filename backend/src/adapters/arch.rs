@@ -18,14 +18,16 @@ const SQUASHFS_IMAGE: &str = "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs";
 /// cleanup. Confirmed against the real ISO — see DECISIONS.md.
 const LIVE_USER: &str = "luminos";
 
-/// `luminos-desktop`'s login manager: greetd, with tuigreet as the
-/// default greeter. Chosen for low weight (a small daemon plus a single
-/// TUI binary, no compositor of its own) and customizability (greetd is
-/// protocol-based, so the greeter — tuigreet, or regreet later for a
-/// branded graphical login — can be swapped without touching Dawn). The
-/// greeter itself is luminos-desktop's default greetd config, not
-/// Dawn's; Dawn only enables the service and overrides the config when
-/// the plan asks for autologin. See DECISIONS.md.
+/// `luminos-desktop`'s login manager: greetd, with regreet (hosted under
+/// Hyprland rather than a separate compositor like cage) as the default
+/// greeter. greetd is protocol-based, so the greeter can be swapped
+/// without touching Dawn; regreet gives a CSS-themeable graphical login
+/// that can carry LuminOS branding, and since Hyprland is already a
+/// luminos-desktop dependency, hosting regreet under it adds no extra
+/// compositor package. The greeter itself is luminos-desktop's default
+/// greetd config, not Dawn's; Dawn only enables the service and
+/// overrides the config when the plan asks for autologin. See
+/// DECISIONS.md.
 const LOGIN_MANAGER: &str = "greetd";
 
 pub struct ArchAdapter;

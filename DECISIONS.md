@@ -45,20 +45,22 @@ Newest first.
   used in `offline_cleanup`'s `userdel -r` (step 6, offline installs
   only).
 
-- **Login manager: `greetd`, with `tuigreet` as the default greeter.**
-  SPEC.md only says "the login manager `luminos-desktop` depends on"
-  without naming it; asked the user, who asked for a recommendation on
-  low weight and customizability. `greetd` is a small protocol-based
-  daemon with no bundled UI, so the greeter is swappable independently of
-  Dawn and the base image; `tuigreet` as the default keeps v1 to a single
-  extra TUI binary with no compositor dependency of its own. `regreet`
-  (GTK, CSS-themeable) is the natural upgrade if a branded graphical
-  login screen becomes a priority later — it needs a host compositor
-  (typically `cage`), which is more weight than v1 asked for. The
-  greeter's own config ships as part of `luminos-desktop`, not Dawn;
-  Dawn's adapter only enables the `greetd` service (step 12) and writes
-  an override to `/etc/greetd/config.toml` when the plan asks for
-  autologin.
+- **Login manager: `greetd`, with `regreet` (hosted under Hyprland) as
+  the default greeter.** SPEC.md only says "the login manager
+  `luminos-desktop` depends on" without naming it; asked the user, who
+  wanted a recommendation on low weight and customizability. First pass
+  was `greetd` + `tuigreet`, since `regreet`'s usual host compositor
+  (`cage`) would have been an extra dependency. The user pointed out
+  LuminOS already ships Hyprland as `luminos-desktop`'s compositor, so
+  hosting `regreet` under a minimal Hyprland session instead of `cage`
+  costs nothing extra — no new compositor package needed. That gets the
+  CSS-themeable, brand-carrying graphical login without the weight
+  tradeoff, so it's the v1 default rather than a later upgrade. `greetd`
+  itself is still what's protocol-based and swappable; the greeter's own
+  config ships as part of `luminos-desktop`, not Dawn. Dawn's adapter
+  only enables the `greetd` service (step 12) and writes an override to
+  `/etc/greetd/config.toml` when the plan asks for autologin — that part
+  is unaffected by which greeter is configured underneath.
 
 - **VM tests run in CI by default, with local QEMU as an accepted
   fallback** when something isn't possible in CI. This applies to M1's
