@@ -26,13 +26,20 @@ PACKAGES=(base linux mkinitcpio)
 REPO_NAME="dawnlocal"
 
 mkdir -p "$OUT_DIR"
+# Recent pacman sandboxes downloads under a dedicated unprivileged user
+# (pacman.conf's DownloadUser, set by default in the archlinux Docker
+# image) — it needs write access to our cachedir, which mktemp -d
+# otherwise creates mode 700 owned by root.
+chmod 777 "$OUT_DIR"
 pacman -Sy --noconfirm
 
 echo "==> Downloading packages into the local mirror (one-time, from the real Arch mirror)" >&2
 pacman -Syw --noconfirm --cachedir "$OUT_DIR" "${PACKAGES[@]}"
 
 echo "==> Building the repo database" >&2
-repo-add "$OUT_DIR/$REPO_NAME.db.tar.gz" "$OUT_DIR"/*.pkg.tar.*
+shopt -s nullglob
+PACKAGE_FILES=("$OUT_DIR"/*.pkg.tar.zst "$OUT_DIR"/*.pkg.tar.xz)
+repo-add "$OUT_DIR/$REPO_NAME.db.tar.gz" "${PACKAGE_FILES[@]}"
 
 echo "==> Serving $OUT_DIR on :8080" >&2
 (cd "$OUT_DIR" && python3 -m http.server 8080 >/tmp/dawn-local-mirror.log 2>&1 &)
