@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "locale": "en_US.UTF-8",
+  "keyboard": { "layout": "us", "variant": "" },
+  "timezone": "Europe/Berlin",
+  "hostname": "ada-laptop",
+  "source": "pacstrap",
+  "packages": ["luminos-base", "luminos-desktop"],
+  "disk": {
+    "mode": "erase",
+    "device": "/dev/disk/by-id/nvme-EXAMPLE_SERIAL",
+    "filesystem": "btrfs"
+  },
+  "secure_boot": { "enroll": false, "microsoft_keys": true },
+  "user": {
+    "full_name": "Ada Lovelace",
+    "username": "ada",
+    "password": "correct-horse-battery-staple",
+    "autologin": false
+  }
+}
