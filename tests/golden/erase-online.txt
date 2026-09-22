@@ -1,0 +1,50 @@
+==> Adapter: arch
+==> Step 1: Validate plan and re-probe the disk
+lsblk --json -o NAME,SIZE,MODEL,MOUNTPOINT /dev/disk/by-id/nvme-EXAMPLE_SERIAL
+==> Step 2: Partition the disk
+sfdisk --wipe always /dev/disk/by-id/nvme-EXAMPLE_SERIAL
+    <<< label: gpt
+size=1GiB, type=uefi, name="ESP"
+type=linux, name="root"
+partprobe /dev/disk/by-id/nvme-EXAMPLE_SERIAL
+==> Step 3: Format and create btrfs subvolumes
+mkfs.fat -F32 -n ESP /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1
+mkfs.btrfs -f -L root /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2
+mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 /mnt/target
+btrfs subvolume create /mnt/target/@
+btrfs subvolume create /mnt/target/@home
+umount /mnt/target
+==> Step 4: Mount the target
+mount -o subvol=@,compress=zstd /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 /mnt/target
+mkdir -p /mnt/target/home
+mount -o subvol=@home,compress=zstd /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 /mnt/target/home
+mkdir -p /mnt/target/boot
+mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1 /mnt/target/boot
+==> Step 5: Install the base system
+pacstrap -K -C /etc/pacman.conf /mnt/target luminos-base luminos-desktop
+==> Step 7: Write fstab, locale, keymap, timezone, hostname, zram
+genfstab -U /mnt/target  # appended to /mnt/target/etc/fstab
+write /mnt/target/etc/locale.gen  # uncomment en_US.UTF-8
+arch-chroot /mnt/target locale-gen
+write /mnt/target/etc/vconsole.conf  # KEYMAP=us
+write /mnt/target/etc/hostname  # ada-laptop
+write /mnt/target/etc/systemd/zram-generator.conf  # [zram0]
+write /mnt/target/etc/skel/.config/hypr/hyprland.conf  # kb_layout = us, kb_variant = 
+==> Step 8: Create the user, lock root, enable sudo
+arch-chroot /mnt/target useradd -m -G wheel -c 'Ada Lovelace' -s /bin/bash ada
+arch-chroot /mnt/target chpasswd
+    <<< [REDACTED]
+arch-chroot /mnt/target passwd -l root
+write /mnt/target/etc/sudoers.d/10-wheel  # %wheel ALL=(ALL:ALL) ALL
+==> Step 9: Build UKIs
+write /mnt/target/etc/kernel/cmdline  # root=/dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 rw
+write /mnt/target/etc/mkinitcpio.d/linux.preset  # default_uki and fallback_uki, systemd hooks + microcode
+arch-chroot /mnt/target mkinitcpio -P
+==> Step 11: Install the bootloader
+arch-chroot /mnt/target bootctl install
+==> Step 12: Enable services, copy the log, unmount
+arch-chroot /mnt/target systemctl enable NetworkManager
+arch-chroot /mnt/target systemctl enable greetd
+cp /var/log/dawn.log /mnt/target/var/log/dawn.log
+umount -R /mnt/target
+sync
