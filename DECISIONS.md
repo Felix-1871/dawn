@@ -41,17 +41,32 @@ Newest first.
   snapshots or test fixtures" — an argv value shows up in `ps` and process
   logs in a way stdin doesn't.
 
-- **Two placeholder values in the `arch` adapter aren't verified against a
-  real LuminOS ISO yet**, since M0 has no VM to check them against:
-  - the live user's name (`liveuser`) removed during offline cleanup
-    (step 6);
-  - the login manager service enabled in step 12 (`greetd`) — SPEC.md only
-    says "the login manager luminos-desktop depends on" without naming it.
+- **The live ISO's user account is `luminos`.** Confirmed by the user;
+  used in `offline_cleanup`'s `userdel -r` (step 6, offline installs
+  only).
 
-  Both are marked with a comment at their definition
-  ([`backend/src/adapters/arch.rs`](backend/src/adapters/arch.rs)) and
-  should be confirmed (and the golden files regenerated if they change)
-  once M1's VM pipeline exists to test against.
+- **Login manager: `greetd`, with `tuigreet` as the default greeter.**
+  SPEC.md only says "the login manager `luminos-desktop` depends on"
+  without naming it; asked the user, who asked for a recommendation on
+  low weight and customizability. `greetd` is a small protocol-based
+  daemon with no bundled UI, so the greeter is swappable independently of
+  Dawn and the base image; `tuigreet` as the default keeps v1 to a single
+  extra TUI binary with no compositor dependency of its own. `regreet`
+  (GTK, CSS-themeable) is the natural upgrade if a branded graphical
+  login screen becomes a priority later — it needs a host compositor
+  (typically `cage`), which is more weight than v1 asked for. The
+  greeter's own config ships as part of `luminos-desktop`, not Dawn;
+  Dawn's adapter only enables the `greetd` service (step 12) and writes
+  an override to `/etc/greetd/config.toml` when the plan asks for
+  autologin.
+
+- **VM tests run in CI by default, with local QEMU as an accepted
+  fallback** when something isn't possible in CI. This applies to M1's
+  Done-when check (a plan installs into a QEMU VM disk and boots), not
+  just M6's nightly end-to-end run. Confirmed by the user; M1 should
+  still check for `/dev/kvm`, `qemu-system-x86_64` and OVMF per
+  CLAUDE.md's "VM and test environment" section before assuming either
+  path works.
 
 - **`cargo-deny`'s dependency license set for v1**: `MIT`, `Apache-2.0`,
   `Unicode-3.0`, `Unlicense`, `GPL-3.0-or-later` — everything M0's
@@ -61,9 +76,3 @@ Newest first.
   cargo-deny treats a crate without `publish = false` as publishable, so
   all three crates set `publish = false` (none of them are meant to reach
   crates.io).
-
-## Open questions for the user
-
-- Per CLAUDE.md: before M1 starts, we need to know whether VM tests run
-  locally (requires `/dev/kvm`, `qemu-system-x86_64`, OVMF on this
-  machine) or in CI.

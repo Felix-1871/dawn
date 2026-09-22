@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The `arch` adapter: LuminOS's distro-specific pipeline steps. See
-//! SPEC.md "LuminOS adapter". A few exact values here (the live user's
-//! name, the login manager package) aren't nailed down by the spec yet;
-//! they're marked below and are expected to be confirmed against a real
-//! LuminOS ISO in M1, not treated as verified fact.
+//! SPEC.md "LuminOS adapter".
 
 use plan::{InstallPlan, Source};
 
@@ -17,11 +14,18 @@ use crate::runner::{Action, Invocation};
 /// value from the spec.
 const SQUASHFS_IMAGE: &str = "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs";
 
-/// Placeholder pending confirmation against the real ISO profile (M1/M5).
-const LIVE_USER: &str = "liveuser";
+/// The LuminOS live ISO's own user account, removed during offline
+/// cleanup. Confirmed against the real ISO — see DECISIONS.md.
+const LIVE_USER: &str = "luminos";
 
-/// Placeholder pending confirmation of which login manager
-/// `luminos-desktop` actually depends on (M1/M5).
+/// `luminos-desktop`'s login manager: greetd, with tuigreet as the
+/// default greeter. Chosen for low weight (a small daemon plus a single
+/// TUI binary, no compositor of its own) and customizability (greetd is
+/// protocol-based, so the greeter — tuigreet, or regreet later for a
+/// branded graphical login — can be swapped without touching Dawn). The
+/// greeter itself is luminos-desktop's default greetd config, not
+/// Dawn's; Dawn only enables the service and overrides the config when
+/// the plan asks for autologin. See DECISIONS.md.
 const LOGIN_MANAGER: &str = "greetd";
 
 pub struct ArchAdapter;

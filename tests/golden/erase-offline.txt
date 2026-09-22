@@ -24,7 +24,7 @@ mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1 /mnt/target/boot
 unsquashfs -f -d /mnt/target /run/archiso/bootmnt/arch/x86_64/airootfs.sfs  # kernel is copied from the medium separately if /boot has none
 ==> Step 6: Remove live-only packages and files
 arch-chroot /mnt/target pacman -Rns --noconfirm luminos-dawn mkinitcpio-archiso
-arch-chroot /mnt/target userdel -r liveuser
+arch-chroot /mnt/target userdel -r luminos
 write /mnt/target/etc/systemd/system/getty@tty1.service.d/autologin.conf  # remove (was the live session's autologin drop-in)
 write /mnt/target/etc/mkinitcpio.conf.d/archiso.conf  # remove (archiso-only mkinitcpio config)
 arch-chroot /mnt/target pacman-key --init
