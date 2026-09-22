@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Dawn is GPLv3 (Slint is used under GPLv3; see CLAUDE.md and SPEC.md
+# "Decisions at a glance"). Every dependency's licence must be compatible
+# with distributing the whole under GPLv3.
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "GPL-3.0-or-later",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# The plan/backend/frontend workspace members reference each other by path
+# only (they're never published), which this lint would otherwise flag.
+allow-wildcard-paths = true
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
