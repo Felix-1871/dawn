@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Theme } from "theme.slint";
+import { WelcomeScreen } from "screens/welcome.slint";
+import { NetworkScreen } from "screens/network.slint";
+import { KeyboardScreen } from "screens/keyboard.slint";
+import { TimezoneScreen } from "screens/timezone.slint";
+import { DiskScreen, DiskInfo } from "screens/disk.slint";
+import { AccountScreen } from "screens/account.slint";
+import { SummaryScreen } from "screens/summary.slint";
+import { InstallingScreen } from "screens/installing.slint";
+import { DoneScreen } from "screens/done.slint";
+
+export { DiskInfo, Theme }
+
+// SPEC.md "User flow": nine screens, linear, with Back on every screen
+// until Install is pressed; Network only appears when offline.
+export component AppWindow inherits Window {
+    title: Theme.product-name;
+    preferred-width: 820px;
+    preferred-height: 620px;
+    min-width: 640px;
+    min-height: 520px;
+
+    // 0 Welcome, 1 Network, 2 Keyboard, 3 Timezone, 4 Disk, 5 Account,
+    // 6 Summary, 7 Installing, 8 Done.
+    in-out property <int> current-screen: 0;
+
+    // Mock-backend probe results (M2); a real socket backend replaces
+    // these in M3 without the screens themselves changing.
+    in-out property <bool> is-offline: false;
+    in-out property <bool> is-uefi: true;
+    in-out property <bool> is-setup-mode: false;
+    in property <[DiskInfo]> disks;
+
+    // Plan fields, one group per screen.
+    in-out property <string> locale: "en_US.UTF-8";
+    in-out property <string> kb-layout: "us";
+    in-out property <string> kb-variant;
+    in-out property <string> kb-preview;
+    in-out property <string> timezone;
+    in-out property <string> network-name;
+    in-out property <string> network-password;
+    in-out property <string> selected-device;
+    in-out property <string> selected-model;
+    in-out property <string> disk-mode: "erase";
+    in-out property <bool> secure-boot-enroll;
+    in-out property <string> full-name;
+    in-out property <string> username;
+    in-out property <string> hostname;
+    in-out property <string> password;
+    in-out property <bool> autologin;
+
+    // Set once Install is confirmed on the Summary screen.
+    in-out property <string> plan-json;
+    in-out property <string> install-step: "Starting install…";
+    in-out property <float> install-progress: 0;
+
+    callback full-name-edited(string);
+    callback username-edited(string);
+    callback hostname-edited(string);
+    callback install-confirmed();
+    callback quit-requested();
+
+    function go-next() {
+        if (current-screen == 0) {
+            current-screen = is-offline ? 1 : 2;
+        } else if (current-screen == 1) {
+            current-screen = 2;
+        } else if (current-screen < 6) {
+            current-screen += 1;
+        }
+    }
+
+    function go-back() {
+        if (current-screen == 2 && is-offline) {
+            current-screen = 1;
+        } else if (current-screen == 2 && !is-offline) {
+            current-screen = 0;
+        } else if (current-screen > 0 && current-screen <= 6) {
+            current-screen -= 1;
+        }
+    }
+
+    if current-screen == 0: WelcomeScreen {
+        locale <=> root.locale;
+        is-uefi: root.is-uefi;
+        try-live-session => { root.quit-requested(); }
+        install => { root.go-next(); }
+    }
+
+    if current-screen == 1: NetworkScreen {
+        network-name <=> root.network-name;
+        network-password <=> root.network-password;
+        back => { root.go-back(); }
+        join => { root.go-next(); }
+        skip => {
+            root.network-name = "";
+            root.go-next();
+        }
+    }
+
+    if current-screen == 2: KeyboardScreen {
+        layout <=> root.kb-layout;
+        variant <=> root.kb-variant;
+        preview-text <=> root.kb-preview;
+        back => { root.go-back(); }
+        next => { root.go-next(); }
+    }
+
+    if current-screen == 3: TimezoneScreen {
+        timezone <=> root.timezone;
+        back => { root.go-back(); }
+        next => { root.go-next(); }
+    }
+
+    if current-screen == 4: DiskScreen {
+        disks: root.disks;
+        selected-device <=> root.selected-device;
+        selected-model <=> root.selected-model;
+        mode <=> root.disk-mode;
+        is-setup-mode: root.is-setup-mode;
+        secure-boot-enroll <=> root.secure-boot-enroll;
+        back => { root.go-back(); }
+        next => { root.go-next(); }
+    }
+
+    if current-screen == 5: AccountScreen {
+        full-name <=> root.full-name;
+        username <=> root.username;
+        hostname <=> root.hostname;
+        password <=> root.password;
+        autologin <=> root.autologin;
+        full-name-edited(text) => { root.full-name-edited(text); }
+        username-edited(text) => { root.username-edited(text); }
+        hostname-edited(text) => { root.hostname-edited(text); }
+        back => { root.go-back(); }
+        next => { root.go-next(); }
+    }
+
+    if current-screen == 6: SummaryScreen {
+        locale: root.locale;
+        kb-layout: root.kb-layout;
+        kb-variant: root.kb-variant;
+        timezone: root.timezone;
+        disk-model: root.selected-model;
+        disk-device: root.selected-device;
+        is-offline: root.is-offline;
+        network-name: root.network-name;
+        full-name: root.full-name;
+        username: root.username;
+        hostname: root.hostname;
+        autologin: root.autologin;
+        secure-boot-enroll: root.secure-boot-enroll;
+        back => { root.go-back(); }
+        confirm => {
+            root.current-screen = 7;
+            root.install-confirmed();
+        }
+    }
+
+    if current-screen == 7: InstallingScreen {
+        current-step: root.install-step;
+        progress: root.install-progress;
+    }
+
+    if current-screen == 8: DoneScreen {
+        secure-boot-enroll: root.secure-boot-enroll;
+        restart => { root.quit-requested(); }
+        keep-live-session => { root.quit-requested(); }
+    }
+}

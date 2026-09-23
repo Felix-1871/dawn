@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { ProgressIndicator } from "std-widgets.slint";
+
+// SPEC.md: "Progress bar, current step, optional branded slideshow,
+// expandable log." Real progress events arrive over the socket in M3;
+// this shows a static placeholder so the screen exists and is
+// reachable in M2's mock-backend mode.
+export component InstallingScreen inherits VerticalLayout {
+    in property <string> current-step: "Starting install…";
+    in property <float> progress: 0;
+
+    padding: 32px;
+    spacing: 20px;
+    alignment: center;
+
+    Text { text: "Installing"; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+    Text { text: current-step; horizontal-alignment: center; }
+    ProgressIndicator { progress: progress; width: 100%; }
+}

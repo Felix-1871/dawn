@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button } from "std-widgets.slint";
+
+// SPEC.md: "Restart now or keep the live session; after Secure Boot
+// setup, reminds the user to switch Secure Boot on in firmware if it
+// isn't."
+export component DoneScreen inherits VerticalLayout {
+    in property <bool> secure-boot-enroll;
+
+    callback restart();
+    callback keep-live-session();
+
+    padding: 32px;
+    spacing: 20px;
+    alignment: center;
+
+    Text { text: "All done"; font-size: 26px; font-weight: 700; horizontal-alignment: center; }
+    Text { text: "LuminOS is installed."; horizontal-alignment: center; }
+
+    if secure-boot-enroll: Text {
+        text: "Remember to switch Secure Boot on in your firmware if it isn't already.";
+        wrap: word-wrap;
+        horizontal-alignment: center;
+    }
+
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: center;
+        Button { text: "Keep live session"; clicked => { keep-live-session(); } }
+        Button { text: "Restart now"; primary: true; clicked => { restart(); } }
+    }
+}

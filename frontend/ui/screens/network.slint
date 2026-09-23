@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, LineEdit } from "std-widgets.slint";
+
+// SPEC.md: "A Wi-Fi network and password via NetworkManager, or Skip |
+// Only shown when offline; Skip means an offline install from the
+// ISO's image." The frontend talks to NetworkManager over D-Bus itself
+// (SPEC.md "Architecture") — that wiring lands in M3; this screen is
+// mock-backend only for now, with a plain network name field standing
+// in for a real scan-and-join flow.
+export component NetworkScreen inherits VerticalLayout {
+    in-out property <string> network-name;
+    in-out property <string> network-password;
+
+    callback back();
+    callback join();
+    callback skip();
+
+    padding: 32px;
+    spacing: 16px;
+
+    Text { text: "Connect to Wi-Fi"; font-size: 22px; font-weight: 700; }
+    Text {
+        text: "You're offline. Join a network to install online, or skip to install from the live image.";
+        wrap: word-wrap;
+    }
+
+    Text { text: "Network name"; }
+    LineEdit {
+        text <=> network-name;
+        placeholder-text: "home-wifi";
+    }
+
+    Text { text: "Password"; }
+    LineEdit {
+        text <=> network-password;
+        input-type: InputType.password;
+    }
+
+    Rectangle { vertical-stretch: 1; }
+
+    HorizontalLayout {
+        spacing: 12px;
+        Button { text: "Back"; clicked => { back(); } }
+        Rectangle { horizontal-stretch: 1; }
+        Button { text: "Skip"; clicked => { skip(); } }
+        Button { text: "Join"; primary: true; enabled: network-name != ""; clicked => { join(); } }
+    }
+}

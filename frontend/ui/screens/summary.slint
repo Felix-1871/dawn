@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button } from "std-widgets.slint";
+
+// SPEC.md: "Lists every change, says online or offline install, names
+// the disk to be wiped, needs an explicit confirm." Nothing touches a
+// disk before this screen's confirm.
+export component SummaryScreen inherits VerticalLayout {
+    in property <string> locale;
+    in property <string> kb-layout;
+    in property <string> kb-variant;
+    in property <string> timezone;
+    in property <string> disk-model;
+    in property <string> disk-device;
+    in property <bool> is-offline;
+    in property <string> network-name;
+    in property <string> full-name;
+    in property <string> username;
+    in property <string> hostname;
+    in property <bool> autologin;
+    in property <bool> secure-boot-enroll;
+
+    callback back();
+    callback confirm();
+
+    padding: 32px;
+    spacing: 10px;
+
+    Text { text: "Summary"; font-size: 22px; font-weight: 700; }
+    Text { text: "Nothing is changed until you confirm."; wrap: word-wrap; }
+
+    Text { text: "Language: \{locale}"; }
+    Text { text: "Keyboard: \{kb-layout} \{kb-variant}"; }
+    Text { text: "Timezone: \{timezone}"; }
+    Text {
+        text: is-offline
+            ? "Install: offline, from the live image (network: \{network-name})"
+            : "Install: online, from the package repositories";
+    }
+    Text { text: "Disk: \{disk-model} (\{disk-device}) will be erased"; wrap: word-wrap; }
+    Text { text: "Secure Boot: \{secure-boot-enroll ? "will be set up" : "not set up now"}"; }
+    Text { text: "User: \{full-name} (\{username}) on \{hostname}, autologin \{autologin ? "on" : "off"}"; wrap: word-wrap; }
+
+    Rectangle { vertical-stretch: 1; }
+
+    HorizontalLayout {
+        spacing: 12px;
+        Button { text: "Back"; clicked => { back(); } }
+        Rectangle { horizontal-stretch: 1; }
+        Button { text: "Install"; primary: true; clicked => { confirm(); } }
+    }
+}

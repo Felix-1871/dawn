@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, CheckBox, LineEdit } from "std-widgets.slint";
+
+// SPEC.md: "Full name, username, password, hostname, autologin | this
+// user gets sudo, root stays locked; username and hostname derived
+// from full name, editable." Derivation itself is Rust's job (it needs
+// the same validation rules the backend enforces); this screen just
+// reports edits so Rust knows once the user has taken over a field.
+export component AccountScreen inherits VerticalLayout {
+    in-out property <string> full-name;
+    in-out property <string> username;
+    in-out property <string> hostname;
+    in-out property <string> password;
+    in-out property <bool> autologin;
+
+    callback full-name-edited(string);
+    callback username-edited(string);
+    callback hostname-edited(string);
+    callback back();
+    callback next();
+
+    padding: 32px;
+    spacing: 14px;
+
+    Text { text: "Account"; font-size: 22px; font-weight: 700; }
+
+    Text { text: "Full name"; }
+    LineEdit {
+        text <=> full-name;
+        placeholder-text: "Ada Lovelace";
+        edited(text) => { full-name-edited(text); }
+    }
+
+    Text { text: "Username"; }
+    LineEdit {
+        text <=> username;
+        edited(text) => { username-edited(text); }
+    }
+
+    Text { text: "Hostname"; }
+    LineEdit {
+        text <=> hostname;
+        edited(text) => { hostname-edited(text); }
+    }
+
+    Text { text: "Password"; }
+    LineEdit {
+        text <=> password;
+        input-type: InputType.password;
+    }
+
+    CheckBox {
+        text: "Log in automatically";
+        checked <=> autologin;
+    }
+
+    Rectangle { vertical-stretch: 1; }
+
+    HorizontalLayout {
+        spacing: 12px;
+        Button { text: "Back"; clicked => { back(); } }
+        Rectangle { horizontal-stretch: 1; }
+        Button {
+            text: "Next";
+            primary: true;
+            enabled: full-name != "" && username != "" && hostname != "" && password != "";
+            clicked => { next(); }
+        }
+    }
+}

@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, ComboBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+// SPEC.md user flow: "Offers 'Try live session' and 'Install'; blocks
+// Install when not booted in UEFI mode and explains how to switch."
+export component WelcomeScreen inherits VerticalLayout {
+    in-out property <string> locale;
+    in property <bool> is-uefi;
+
+    callback try-live-session();
+    callback install();
+
+    padding: 32px;
+    spacing: 20px;
+    alignment: center;
+
+    Image {
+        source: Theme.logo;
+        height: 72px;
+        horizontal-alignment: center;
+    }
+
+    Text {
+        text: Theme.product-name;
+        font-size: 28px;
+        font-weight: 700;
+        horizontal-alignment: center;
+    }
+
+    Text {
+        text: Theme.welcome-text;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+    }
+
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: center;
+        Text { text: "Language"; vertical-alignment: center; }
+        ComboBox {
+            model: ["en_US.UTF-8"];
+            current-value: locale;
+            selected(value) => { locale = value; }
+        }
+    }
+
+    if !is-uefi: Text {
+        text: "This PC did not boot in UEFI mode. Restart and switch the firmware to UEFI to install — the live session still works without it.";
+        wrap: word-wrap;
+        color: #d9534f;
+        horizontal-alignment: center;
+    }
+
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: center;
+        Button {
+            text: "Try live session";
+            clicked => { try-live-session(); }
+        }
+        Button {
+            text: "Install";
+            primary: true;
+            enabled: is-uefi;
+            clicked => { install(); }
+        }
+    }
+}

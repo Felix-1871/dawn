@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Default LuminOS branding. Loaded into the Slint Theme global at
+# startup (SPEC.md "Branding & configuration") — nothing here needs a
+# rebuild to change.
+
+product_name = "LuminOS"
+version_string = "1.0"
+accent_color = "#5b8dee"
+website = "https://github.com/Lumin-OS/LuminOS"
+support_url = "https://github.com/Lumin-OS/LuminOS/issues"
