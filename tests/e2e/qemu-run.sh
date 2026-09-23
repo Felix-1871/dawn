@@ -76,12 +76,16 @@ cmd_install() {
   local vars; vars="$(mktemp /tmp/dawn-ovmf-vars-XXXXXX.fd)"
   cp "$OVMF_VARS_TEMPLATE" "$vars"
 
+  # serial= goes on the virtio-blk device rather than the -drive: current
+  # QEMU rejects it as a drive option. It's what gives the guest its
+  # /dev/disk/by-id/virtio-dawn-target link.
   qemu-system-x86_64 \
     -machine q35,accel=kvm -cpu host -m 2048 -no-reboot \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$vars" \
     -cdrom "$iso" \
-    -drive if=virtio,format=qcow2,file="$target",serial=dawn-target \
+    -drive if=none,id=target,format=qcow2,file="$target" \
+    -device virtio-blk-pci,drive=target,serial=dawn-target \
     -nographic -serial file:"$log" \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     &
@@ -98,11 +102,16 @@ cmd_verify_login() {
   local vars; vars="$(mktemp /tmp/dawn-ovmf-vars-XXXXXX.fd)"
   cp "$OVMF_VARS_TEMPLATE" "$vars"
 
+  # Fresh OVMF variables hold no boot entries, so bootindex=0 points the
+  # firmware straight at the disk's fallback bootloader, rather than
+  # risking network boot attempts on QEMU's default network card eating
+  # into the timeout.
   qemu-system-x86_64 \
     -machine q35,accel=kvm -cpu host -m 2048 -no-reboot \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$vars" \
-    -drive if=virtio,format=qcow2,file="$target",serial=dawn-target \
+    -drive if=none,id=target,format=qcow2,file="$target" \
+    -device virtio-blk-pci,drive=target,serial=dawn-target,bootindex=0 \
     -nographic -serial file:"$log" \
     &
   wait_for_marker "$timeout" "login:" "$log" $!
