@@ -48,7 +48,11 @@ fi
 
 mkdir -p "$PROFILE/airootfs/usr/local/bin"
 cp target/release/dawn-backend "$PROFILE/airootfs/usr/local/bin/dawn-backend"
-chmod +x "$PROFILE/airootfs/usr/local/bin/dawn-backend"
+# mkarchiso copies airootfs/ without file modes (every file lands as
+# 0644), so a chmod here would be lost; profiledef.sh's file_permissions
+# is what sets modes in the image.
+echo 'file_permissions+=(["/usr/local/bin/dawn-backend"]="0:0:755")' \
+  >> "$PROFILE/profiledef.sh"
 
 # Modern releng's live session is just root, auto-logged in — no
 # separate live user (see DECISIONS.md). The real LuminOS ISO has one
