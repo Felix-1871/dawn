@@ -218,11 +218,11 @@ Newest first.
   directly on the `ubuntu-latest` host, even for the QEMU job. `mkarchiso`
   (needed to build the throwaway test ISO) has no Ubuntu package at all —
   it's Arch-only tooling. The container runs `--privileged`, which is
-  also what gives it access to the runner's `/dev/kvm`. This hasn't had
-  its first real CI run yet as of this PR (see "What couldn't be
-  verified locally" in the PR description) — per the user's decision,
-  VM tests run in CI, so its first real signal comes from there, not
-  from guessing further locally.
+  also what gives it access to the runner's `/dev/kvm`; the loop-device
+  job also bind-mounts the host's `/dev`, since Docker's own `/dev` is a
+  snapshot that never shows the loop device's new partitions. Per the
+  user's decision, VM tests run in CI, so these jobs are where the
+  privileged parts of the pipeline actually get exercised.
 
 ## Open items for the user
 
