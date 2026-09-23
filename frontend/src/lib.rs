@@ -20,12 +20,22 @@ use slint::{ModelRc, VecModel};
 
 slint::include_modules!();
 
+/// The stable identifier SPEC.md's Hyprland window rule matches on
+/// ("a stable window title and app_id"). Slint's winit backend doesn't
+/// set one on its own (confirmed by inspecting a running window with
+/// `hyprctl clients` — its `class` came back empty) — see DECISIONS.md.
+pub const APP_ID: &str = "luminos-dawn";
+
 /// Builds an `AppWindow` with branding loaded, mock backend data filled
 /// in, and every callback wired — everything `main()` needs before
 /// calling `.run()`, and everything the UI smoke test needs before
 /// driving it.
 pub fn build_ui() -> Result<AppWindow, slint::PlatformError> {
     let app = AppWindow::new()?;
+    // Errors here just mean no Wayland/X11 platform is present (the
+    // testing backend, say) — harmless to ignore per set_xdg_app_id's
+    // own doc comment.
+    let _ = slint::set_xdg_app_id(APP_ID);
 
     let branding_dir = branding::find_branding_dir("luminos");
     match branding::load(&branding_dir) {

@@ -6,6 +6,18 @@ Newest first.
 
 ## M2
 
+- **The app_id Slint's winit backend sets is empty, so `build_ui()`
+  sets one explicitly: `luminos-dawn`.** SPEC.md asks M2 to confirm
+  this ("The Hyprland window rule matches a stable window title and
+  app_id; M2 confirms which app_id Slint's winit backend sets") —
+  running the built binary under this machine's actual Hyprland session
+  and checking `hyprctl clients` showed `class` came back empty. Fixed
+  with `slint::set_xdg_app_id("luminos-dawn")` right after
+  `AppWindow::new()`; confirmed by re-running and checking
+  `hyprctl clients` again, which now reports `class: luminos-dawn`.
+  M5's Hyprland window rule should match on this app_id, not the title
+  (which is branding-derived and not stable across branding folders).
+
 - **`frontend` is now a library plus a thin binary**, not just a binary.
   `slint::include_modules!()` (the generated `AppWindow`, `DiskInfo`,
   `Theme` types) lives in `src/lib.rs`; `src/main.rs` is just
