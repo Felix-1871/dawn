@@ -41,13 +41,17 @@ jobs:
     timeout-minutes: 30
     container:
       image: archlinux:base-devel
-      options: --privileged
+      # Docker's own /dev is a snapshot taken when the container starts,
+      # so the loop device's partitions (created later, by dawn-backend's
+      # sfdisk) would never appear in it. The host's /dev is the kernel's
+      # devtmpfs, where they do.
+      options: --privileged -v /dev:/dev
     steps:
       - uses: actions/checkout@v4
       - name: Install build and install tooling
         run: |
           pacman -Sy --noconfirm rust arch-install-scripts btrfs-progs \
-            dosfstools util-linux jq python
+            dosfstools parted util-linux jq python
       - name: Loop-device install (online, pacstrap)
         run: |
           set -euo pipefail
@@ -81,8 +85,9 @@ jobs:
         run: test -e /dev/kvm || (echo "no /dev/kvm on this runner" >&2; exit 1)
       - name: Install build, archiso and QEMU tooling
         run: |
-          pacman -Sy --noconfirm rust archiso qemu-system-x86 edk2-ovmf jq \
-            arch-install-scripts btrfs-progs dosfstools util-linux python
+          pacman -Sy --noconfirm rust archiso qemu-system-x86 qemu-img \
+            edk2-ovmf jq arch-install-scripts btrfs-progs dosfstools \
+            util-linux python
       - name: Install (online) and boot to login
         run: tests/e2e/run-e2e.sh online
       - name: Install (offline) and boot to login
