@@ -13,9 +13,11 @@
 # infrastructure), so this mirrors plain Arch stand-ins for them: `base`
 # and a kernel, plus the parts of those meta-packages the pipeline itself
 # relies on — NetworkManager and greetd for step 12's `systemctl enable`,
-# sudo for step 8's drop-in, zram-generator for step 7's config. Swap
-# PACKAGES below for the real meta-packages once luminos-repository
-# exists; see DECISIONS.md.
+# sudo for step 8's drop-in, zram-generator for step 7's config, and
+# btrfs-progs, whose fsck.btrfs mkinitcpio's fsck hook needs for a btrfs
+# root (without it, step 9's `mkinitcpio -P` fails). Swap PACKAGES below
+# for the real meta-packages once luminos-repository exists; see
+# DECISIONS.md.
 #
 # Usage: setup-local-mirror.sh <output-dir> [server-host]
 # Besides the repo itself, <output-dir> gets two files for the tests:
@@ -37,7 +39,7 @@ set -euo pipefail
 
 OUT_DIR="${1:?usage: setup-local-mirror.sh <output-dir> [server-host]}"
 SERVER_HOST="${2:-127.0.0.1}"
-PACKAGES=(base linux mkinitcpio networkmanager greetd sudo zram-generator)
+PACKAGES=(base linux mkinitcpio btrfs-progs networkmanager greetd sudo zram-generator)
 REPO_NAME="dawnlocal"
 
 mkdir -p "$OUT_DIR"

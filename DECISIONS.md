@@ -186,8 +186,10 @@ Newest first.
   (same reason as above — they don't exist yet): `base`, `linux` and
   `mkinitcpio`, plus the parts of those meta-packages the pipeline
   itself relies on — `networkmanager` and `greetd` (step 12 enables
-  their services), `sudo` (step 8's drop-in) and `zram-generator`
-  (step 7's config). The e2e scripts swap this list into each online
+  their services), `sudo` (step 8's drop-in), `zram-generator`
+  (step 7's config) and `btrfs-progs` (mkinitcpio's `fsck` hook needs
+  `fsck.btrfs` for a btrfs root, and without it `mkinitcpio -P` exits
+  non-zero, failing step 9). The e2e scripts swap this list into each online
   plan's `packages`, since the plans themselves name the real
   meta-packages. It downloads the full dependency closure once from the
   real Arch mirror, resolved against an empty package database so
@@ -216,3 +218,9 @@ Newest first.
   `source = ~/.config/hypr/keyboard.conf` for Dawn's keyboard-layout
   step to actually take effect. Worth confirming once that package
   exists.
+
+- `luminos-base` must depend on `btrfs-progs`. SPEC.md's list of what
+  the meta-packages cover doesn't name it, but with a btrfs root,
+  mkinitcpio's default `fsck` hook fails the build without
+  `fsck.btrfs`, so step 9 can't produce the UKIs. The e2e tests'
+  stand-in package set includes it for the same reason.
