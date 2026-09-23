@@ -21,10 +21,10 @@ MIRROR_SNIPPET=""
 if [ "$MODE" = "online" ]; then
   MIRROR_DIR="$(mktemp -d /tmp/dawn-mirror-XXXXXX)"
   MIRROR_SNIPPET="$MIRROR_DIR/pacman.conf.snippet"
+  trap 'kill "$(cat "$MIRROR_DIR/http-server.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
   # 10.0.2.2 is SLIRP's address for the host running QEMU, reachable
   # from the guest that build-test-iso.sh bakes this snippet into.
-  MIRROR_PID="$("$E2E_DIR/setup-local-mirror.sh" "$MIRROR_DIR" 10.0.2.2)"
-  trap 'kill "$MIRROR_PID" 2>/dev/null || true' EXIT
+  "$E2E_DIR/setup-local-mirror.sh" "$MIRROR_DIR" 10.0.2.2
 fi
 
 ISO="$(mktemp -u /tmp/dawn-e2e-XXXXXX.iso)"

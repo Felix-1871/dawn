@@ -43,8 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           MIRROR_DIR=$(mktemp -d)
-          MIRROR_PID=$(tests/e2e/setup-local-mirror.sh "$MIRROR_DIR")
-          trap 'kill "$MIRROR_PID" 2>/dev/null || true' EXIT
+          trap 'kill "$(cat "$MIRROR_DIR/http-server.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
+          tests/e2e/setup-local-mirror.sh "$MIRROR_DIR"
           tests/e2e/loop-device-install.sh online tests/plans/erase-online.json \
             "$MIRROR_DIR/pacman.conf.snippet"
 

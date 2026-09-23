@@ -16,8 +16,11 @@
 # exists; see DECISIONS.md.
 #
 # Usage: setup-local-mirror.sh <output-dir> [server-host]
-# Serves the repo over HTTP on port 8080 in the background; prints the
-# server's PID to stdout on the last line so the caller can stop it.
+# Serves the repo over HTTP on port 8080 in the background and writes the
+# server's PID to <output-dir>/http-server.pid so the caller can stop it.
+# Run this directly, never inside $(...): a command substitution only
+# returns once every process holding its stdout has exited, and the
+# server is meant to outlive this script.
 #
 # server-host is what pacman.conf.snippet tells clients to connect to,
 # and it depends on who's connecting: a plain container reaches this
@@ -47,15 +50,27 @@ shopt -s nullglob
 PACKAGE_FILES=("$OUT_DIR"/*.pkg.tar.zst "$OUT_DIR"/*.pkg.tar.xz)
 repo-add "$OUT_DIR/$REPO_NAME.db.tar.gz" "${PACKAGE_FILES[@]}"
 
-echo "==> Serving $OUT_DIR on :8080" >&2
-(cd "$OUT_DIR" && python3 -m http.server 8080 >/tmp/dawn-local-mirror.log 2>&1 &)
-sleep 1
-SERVER_PID="$(pgrep -f 'http.server 8080' | head -1)"
-
 cat > "$OUT_DIR/pacman.conf.snippet" <<EOF
 [$REPO_NAME]
 SigLevel = Optional TrustAll
 Server = http://$SERVER_HOST:8080
 EOF
 
-echo "$SERVER_PID"
+echo "==> Serving $OUT_DIR on :8080" >&2
+# Started directly, with every stream redirected, so the server never
+# holds the caller's stdout or stderr open. Anything waiting for those to
+# close (a $(...) capture, or the `docker exec` behind a CI step) would
+# otherwise block for as long as the server runs.
+python3 -m http.server 8080 --directory "$OUT_DIR" \
+  >"$OUT_DIR/http-server.log" 2>&1 </dev/null &
+echo "$!" > "$OUT_DIR/http-server.pid"
+
+for _ in $(seq 30); do
+  if curl -fs -o /dev/null "http://127.0.0.1:8080/$REPO_NAME.db"; then
+    exit 0
+  fi
+  sleep 1
+done
+echo "error: the local mirror never answered on :8080" >&2
+cat "$OUT_DIR/http-server.log" >&2
+exit 1
