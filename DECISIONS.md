@@ -224,15 +224,63 @@ Newest first.
   user's decision, VM tests run in CI, so these jobs are where the
   privileged parts of the pipeline actually get exercised.
 
+- **Microcode comes only from luminos-base's `microcode` hook.** Dawn's
+  preset also set `ALL_microcode`, which mkinitcpio 42 ignores with a
+  deprecation warning on every build, so the line was dropped. Agreed
+  with the user after M1 merged.
+
+- **`UncommentLine` treats an already-enabled line as done.** An offline
+  install copies the live image, and an ISO that ships its locale
+  already enabled in `/etc/locale.gen` would otherwise fail step 7 every
+  time. A locale missing from the file entirely is still an error.
+  Agreed with the user after M1 merged.
+
+- **The QEMU end-to-end job runs on every push until M6.** SPEC.md's
+  Testing table puts end-to-end runs nightly, and M6 is where the
+  nightly workflow lands; until then the job (about 9 minutes) stays on
+  every push, so each milestone's PR shows it. Agreed with the user.
+
+- **Known gap, to be fixed in a later milestone: step 7 sets neither the
+  timezone nor `LANG`.** SPEC.md's step 7 includes the timezone, and the
+  step's name says so, but no action writes `/etc/localtime` or
+  `/etc/locale.conf`, and the plan's `timezone` field is unused. Found
+  after M1 merged; the user chose to fix it later rather than reopen M1
+  during M2.
+
 ## Open items for the user
 
-- `luminos-desktop`'s default `hyprland.conf` needs to
-  `source = ~/.config/hypr/keyboard.conf` for Dawn's keyboard-layout
-  step to actually take effect. Worth confirming once that package
-  exists.
+- **Offline installs keep the live image's live-only parts.** Step 6
+  removes what SPEC.md lists (Dawn, `mkinitcpio-archiso`, the tty1
+  autologin drop-in, the live user, archiso's mkinitcpio config), but
+  the LuminOS ISO is Arch's releng profile underneath, and it enables
+  more from `/etc`: the pacman keyring reset (`pacman-init.service` with
+  `etc-pacman.d-gnupg.mount`, which would wipe the installed system's
+  keyring on every boot), sshd with archiso's password-login config, a
+  volatile journal, lid-close suspend disabled, reflector and
+  choose-mirror, systemd-networkd/iwd next to NetworkManager, cloud-init
+  and the VM guest agents. LuminOS's current Calamares setup deletes
+  only the keyring reset, the autologin and root's live dotfiles.
+  Recommended: the ISO drops what a desktop live ISO doesn't need and
+  packages the rest as `luminos-live`, installed only on the ISO; step 6
+  then removes it like `mkinitcpio-archiso` (through `installer.toml`'s
+  `[offline_cleanup] remove_packages`, as SPEC.md sketches). Awaiting the
+  user's decision.
 
-- `luminos-base` must depend on `btrfs-progs`. SPEC.md's list of what
-  the meta-packages cover doesn't name it, but with a btrfs root,
-  mkinitcpio's default `fsck` hook fails the build without
-  `fsck.btrfs`, so step 9 can't produce the UKIs. The e2e tests'
-  stand-in package set includes it for the same reason.
+- **`copytoram` on USB boots.** archiso's default copies the image into
+  RAM and unmounts the boot medium when it isn't an optical drive and
+  there's at least 2 GiB of RAM to spare beyond the image, which is most
+  laptops booting from USB. The LuminOS boot entries don't override it.
+  Both files the offline install reads (`airootfs.sfs` and the kernel on
+  the medium) then disappear, and with the medium unmounted, the
+  backend's safety check no longer recognises the live USB as a disk to
+  refuse. The e2e test boots from a CD-ROM, where `copytoram` stays off.
+  Recommended: Dawn uses `/run/archiso/copytoram/airootfs.sfs` when it
+  exists, takes the kernel from the image's own
+  `/usr/lib/modules/<version>/vmlinuz`, and identifies the boot medium
+  from the kernel command line (`archisodevice=` or
+  `archisosearchuuid=`) so it's refused even when unmounted; the e2e
+  test gains a `copytoram=y` boot. The alternative is the ISO setting
+  `copytoram=n` on every boot entry. Awaiting the user's decision.
+
+- **Changes needed in LuminOS itself** (its ISO profile and
+  luminos-repository) are tracked in `LUMINOS-CHANGES.md`.
