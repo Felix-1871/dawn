@@ -10,20 +10,15 @@
 #
 # luminos-base and luminos-desktop don't exist yet (SPEC.md's "Changes
 # outside Dawn" lists luminos-repository as separate, not-yet-built
-# infrastructure), so this mirrors plain Arch stand-ins for them: `base`
-# and a kernel, plus the parts of those meta-packages the pipeline itself
-# relies on — NetworkManager and greetd for step 12's `systemctl enable`,
-# sudo for step 8's drop-in, zram-generator for step 7's config, and
-# btrfs-progs, whose fsck.btrfs mkinitcpio's fsck hook needs for a btrfs
-# root (without it, step 9's `mkinitcpio -P` fails). Swap PACKAGES below
-# for the real meta-packages once luminos-repository exists; see
-# DECISIONS.md.
+# infrastructure), so this mirrors the plain-Arch stand-ins listed in
+# stand-in-packages.x86_64 instead; see that file and DECISIONS.md.
 #
 # Usage: setup-local-mirror.sh <output-dir> [server-host]
 # Besides the repo itself, <output-dir> gets two files for the tests:
 #   pacman.conf    a complete pacman config listing this mirror and
 #                  nothing else, for pacstrap's -C
-#   packages.json  PACKAGES as a JSON array, for a plan's "packages"
+#   packages.json  the stand-in list as a JSON array, for a plan's
+#                  "packages"
 # Serves the repo over HTTP on port 8080 in the background and writes the
 # server's PID to <output-dir>/http-server.pid so the caller can stop it.
 # Run this directly, never inside $(...): a command substitution only
@@ -39,8 +34,12 @@ set -euo pipefail
 
 OUT_DIR="${1:?usage: setup-local-mirror.sh <output-dir> [server-host]}"
 SERVER_HOST="${2:-127.0.0.1}"
-PACKAGES=(base linux mkinitcpio btrfs-progs networkmanager greetd sudo zram-generator)
 REPO_NAME="dawnlocal"
+
+mapfile -t PACKAGES < <(
+  sed -e 's/#.*//' -e 's/^[[:blank:]]*//' -e 's/[[:blank:]]*$//' -e '/^$/d' \
+    "$(dirname "$0")/stand-in-packages.x86_64"
+)
 
 mkdir -p "$OUT_DIR"
 # Recent pacman sandboxes downloads under a dedicated unprivileged user
