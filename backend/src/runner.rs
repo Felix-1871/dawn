@@ -82,6 +82,10 @@ impl Invocation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Run(Invocation),
+    /// Replaces `path` with `content`, creating any missing parent
+    /// directories first: config drop-ins such as
+    /// `/etc/skel/.config/hypr/keyboard.conf` go into directories that
+    /// only exist if some package happened to create them.
     WriteFile {
         path: String,
         content: String,
@@ -301,10 +305,15 @@ fn run_invocation(inv: &Invocation) -> Result<(), RunnerError> {
 }
 
 fn write_file(path: &str, content: &str) -> Result<(), RunnerError> {
-    std::fs::write(path, content).map_err(|source| RunnerError::Write {
+    let write_err = |source| RunnerError::Write {
         path: path.to_string(),
         source,
-    })
+    };
+
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent).map_err(write_err)?;
+    }
+    std::fs::write(path, content).map_err(write_err)
 }
 
 fn uncomment_line(path: &str, pattern: &str) -> Result<(), RunnerError> {
@@ -470,6 +479,27 @@ mod tests {
             .unwrap();
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "ada-laptop\n");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn real_runner_creates_missing_parent_directories() {
+        let dir = unique_temp_dir();
+        let path = dir
+            .join("etc/skel/.config/hypr/keyboard.conf")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let mut runner = RealRunner::new();
+        runner
+            .run(&Action::WriteFile {
+                path: path.clone(),
+                content: "input {\n}\n".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "input {\n}\n");
         std::fs::remove_dir_all(&dir).ok();
     }
 
