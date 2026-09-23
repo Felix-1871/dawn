@@ -93,7 +93,9 @@ pub enum Action {
     /// Uncomments the first line under `path` that, once stripped of `#`
     /// and leading whitespace, equals `pattern` exactly. Used for
     /// `/etc/locale.gen`, which the base install already ships commented
-    /// out in full.
+    /// out in full. If the line is already there uncommented (a live
+    /// image an offline install copies may have its locale enabled), the
+    /// file is left as it is.
     UncommentLine {
         path: String,
         pattern: String,
@@ -192,7 +194,7 @@ pub enum RunnerError {
         #[source]
         source: std::io::Error,
     },
-    #[error("no commented-out {pattern:?} line found in {path}")]
+    #[error("no {pattern:?} line, commented out or not, found in {path}")]
     PatternNotFound { path: String, pattern: String },
 }
 
@@ -360,6 +362,10 @@ fn uncomment_line(path: &str, pattern: &str) -> Result<(), RunnerError> {
     };
 
     let original = std::fs::read_to_string(path).map_err(write_err)?;
+    if original.lines().any(|line| line.trim() == pattern) {
+        return Ok(());
+    }
+
     let mut found = false;
     let mut updated_lines = Vec::new();
     for line in original.lines() {
@@ -609,6 +615,25 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "#de_DE.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n#fr_FR.UTF-8 UTF-8\n"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn real_runner_leaves_an_already_uncommented_line_alone() {
+        let dir = unique_temp_dir();
+        let path = dir.join("locale.gen").to_str().unwrap().to_string();
+        let original = "#de_DE.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n#fr_FR.UTF-8 UTF-8\n";
+        std::fs::write(&path, original).unwrap();
+
+        let mut runner = RealRunner::new();
+        runner
+            .run(&Action::UncommentLine {
+                path: path.clone(),
+                pattern: "en_US.UTF-8 UTF-8".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         std::fs::remove_dir_all(&dir).ok();
     }
 
