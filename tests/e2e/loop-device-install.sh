@@ -73,6 +73,8 @@ cargo run --release -p backend -- --target "$BY_ID_LINK" "$PLAN_FILE"
 echo "==> Verifying the install landed on disk" >&2
 mkdir -p /mnt/verify
 mount -o subvol=@ "${LOOP_DEV}p2" /mnt/verify
+# The UKIs live on the ESP, not in @'s own (empty) /boot mount point.
+mount "${LOOP_DEV}p1" /mnt/verify/boot
 
 test "$(cat /mnt/verify/etc/hostname)" = "$(jq -r '.hostname' "$PLAN_FILE")"
 grep -q "^$(jq -r '.user.username' "$PLAN_FILE"):" /mnt/verify/etc/passwd
@@ -80,5 +82,5 @@ grep -q "^root:!" /mnt/verify/etc/shadow
 test -f /mnt/verify/boot/EFI/Linux/arch-linux.efi
 test -f /mnt/verify/boot/EFI/Linux/arch-linux-fallback.efi
 
-umount /mnt/verify
+umount -R /mnt/verify
 echo "==> $MODE loop-device install verified" >&2
