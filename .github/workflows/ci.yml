@@ -17,7 +17,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -47,7 +47,7 @@ jobs:
       # devtmpfs, where they do.
       options: --privileged -v /dev:/dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build and install tooling
         run: |
           pacman -Sy --noconfirm rust arch-install-scripts btrfs-progs \
@@ -80,7 +80,7 @@ jobs:
       image: archlinux:base-devel
       options: --privileged
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check for /dev/kvm
         run: test -e /dev/kvm || (echo "no /dev/kvm on this runner" >&2; exit 1)
       - name: Install build, archiso and QEMU tooling
