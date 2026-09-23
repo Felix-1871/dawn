@@ -17,6 +17,10 @@ pub struct DiskLayout {
     pub target: String,
     pub esp_device: String,
     pub root_device: String,
+    /// The btrfs subvolume mounted at `/`, if root isn't the
+    /// filesystem's top level. The kernel mounts the top level unless
+    /// told otherwise, so the boot command line has to name it.
+    pub root_subvolume: Option<String>,
 }
 
 pub trait Adapter {

@@ -50,7 +50,7 @@ write /mnt/target/etc/sudoers.d/10-wheel
     <<< %wheel ALL=(ALL:ALL) ALL
 ==> Step 9: Build UKIs
 write /mnt/target/etc/kernel/cmdline
-    <<< root=/dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 rw console=tty0 console=ttyS0,115200n8
+    <<< root=/dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 rootflags=subvol=@ rw console=tty0 console=ttyS0,115200n8
 write /mnt/target/etc/mkinitcpio.d/linux.preset
     <<< # mkinitcpio preset for the linux package — built by dawn-backend
     <<< 
@@ -64,6 +64,7 @@ write /mnt/target/etc/mkinitcpio.d/linux.preset
     <<< 
     <<< fallback_uki="/boot/EFI/Linux/arch-linux-fallback.efi"
     <<< fallback_options="-S autodetect --cmdline /etc/kernel/cmdline"
+mkdir -p /mnt/target/boot/EFI/Linux
 arch-chroot /mnt/target mkinitcpio -P
 ==> Step 11: Install the bootloader
 arch-chroot /mnt/target bootctl install

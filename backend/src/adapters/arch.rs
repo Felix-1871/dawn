@@ -152,6 +152,11 @@ impl Adapter for ArchAdapter {
     }
 
     fn build_ukis(&self, _plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
+        let rootflags = layout
+            .root_subvolume
+            .as_ref()
+            .map(|subvolume| format!(" rootflags=subvol={subvolume}"))
+            .unwrap_or_default();
         vec![
             Action::WriteFile {
                 path: format!("{}/etc/kernel/cmdline", layout.target),
@@ -162,7 +167,7 @@ impl Adapter for ArchAdapter {
                 // tests/e2e/qemu-run.sh watch for a login prompt over
                 // the serial console rather than a framebuffer.
                 content: format!(
-                    "root={} rw console=tty0 console=ttyS0,115200n8\n",
+                    "root={}{rootflags} rw console=tty0 console=ttyS0,115200n8\n",
                     layout.root_device
                 ),
             },
@@ -170,6 +175,12 @@ impl Adapter for ArchAdapter {
                 path: format!("{}/etc/mkinitcpio.d/linux.preset", layout.target),
                 content: mkinitcpio_preset(),
             },
+            // The presets write the UKIs into this directory, and a
+            // freshly formatted ESP is empty.
+            Action::Run(Invocation::new(
+                "mkdir",
+                ["-p", &format!("{}/boot/EFI/Linux", layout.target)],
+            )),
             Action::Run(Self::chroot(layout, ["mkinitcpio", "-P"])),
         ]
     }

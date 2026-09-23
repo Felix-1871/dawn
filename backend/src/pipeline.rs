@@ -104,6 +104,7 @@ fn disk_layout(plan: &InstallPlan) -> DiskLayout {
             target,
             esp_device: format!("{}-part1", plan.disk.device),
             root_device: format!("{}-part2", plan.disk.device),
+            root_subvolume: Some("@".to_string()),
         },
         DiskMode::Manual => {
             let partitions = plan
@@ -123,10 +124,13 @@ fn disk_layout(plan: &InstallPlan) -> DiskLayout {
                 .expect("manual mode plans are validated to have exactly one root")
                 .device
                 .clone();
+            // Manual mode mounts the root partition's top level at / in
+            // step 4, not a subvolume.
             DiskLayout {
                 target,
                 esp_device: esp,
                 root_device: root,
+                root_subvolume: None,
             }
         }
     }
