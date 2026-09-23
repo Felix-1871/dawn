@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# A stand-in for the real luminos-dawn, for the e2e test ISO only. It
+# carries everything the test adds to the live system: dawn-backend, the
+# plan to install, and a service that runs the install on boot. An
+# offline install's step 6 (`pacman -Rns luminos-dawn ...`) then finds a
+# real package to remove, and takes all of that back out of the installed
+# system, as it will with the real package.
+#
+# build-stand-in-packages.sh copies dawn-backend and plan.json in next to
+# this file before running makepkg.
+
+pkgname=luminos-dawn
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Dawn e2e test stand-in: dawn-backend and an install-on-boot service'
+arch=('x86_64')
+url='https://github.com/Felix-1871/dawn'
+license=('GPL-3.0-or-later')
+options=('!debug' '!strip')
+source=('dawn-backend' 'plan.json' 'dawn-e2e-install@.service')
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 dawn-backend "$pkgdir/usr/bin/dawn-backend"
+  install -Dm644 plan.json "$pkgdir/usr/share/dawn-e2e/plan.json"
+  install -Dm644 dawn-e2e-install@.service \
+    "$pkgdir/usr/lib/systemd/system/dawn-e2e-install@.service"
+
+  # Enabled statically, from /usr, so removing the package disables it
+  # too. The instance is the plan's own target disk; systemd-escape turns
+  # it into a unit name, and %I in the unit turns it back.
+  local instance
+  instance="$(systemd-escape "$(jq -r '.disk.device' plan.json)")"
+  install -dm755 "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
+  ln -s ../dawn-e2e-install@.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/dawn-e2e-install@$instance.service"
+}

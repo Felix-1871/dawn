@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# A stand-in for LuminOS's pacman keyring, for the e2e test ISO only. An
+# offline install's step 6 runs `pacman-key --populate archlinux luminos`,
+# which needs a luminos keyring to import. build-stand-in-packages.sh
+# generates a throwaway key for it and copies luminos.gpg and
+# luminos-trusted in next to this file; nothing is ever signed with it.
+
+pkgname=luminos-keyring
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Dawn e2e test stand-in: a throwaway luminos pacman keyring'
+arch=('any')
+url='https://github.com/Felix-1871/dawn'
+license=('GPL-3.0-or-later')
+source=('luminos.gpg' 'luminos-trusted')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  install -Dm644 -t "$pkgdir/usr/share/pacman/keyrings/" luminos.gpg luminos-trusted
+}

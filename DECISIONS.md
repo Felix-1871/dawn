@@ -142,10 +142,13 @@ Newest first.
   section lists `luminos-repository` and the ISO profile as separate,
   not-yet-built work — `luminos-base`, `luminos-desktop` and the
   LuminOS-branded ISO aren't real yet). `tests/e2e/build-test-iso.sh`
-  builds a throwaway archiso profile instead: plain Arch's `base` group
-  in place of `luminos-base`/`luminos-desktop`, with `dawn-backend`
-  copied in and a oneshot systemd service that installs the baked-in
-  plan onto a second (virtio, `serial=dawn-target`) disk and powers off.
+  builds a throwaway archiso profile instead: releng plus the same
+  plain-Arch stand-ins an online install gets (see the local mirror
+  entry below), and stand-in `luminos-dawn` and `luminos-keyring`
+  packages (see the offline cleanup entry below). The stand-in
+  `luminos-dawn` carries `dawn-backend`, the baked-in plan, and a
+  oneshot systemd service that installs it onto a second (virtio,
+  `serial=dawn-target`) disk and powers off.
   This is enough to prove M1's actual Done-when — a plan installs and
   the result boots to a login prompt — without waiting on that other
   repo. It should be swapped for the real LuminOS ISO once M5's ISO
@@ -158,18 +161,22 @@ Newest first.
   this, `offline_cleanup`'s `userdel -r luminos` has nothing to delete
   and fails outright.
 
-- **Known, accepted gap: `offline_cleanup`'s
-  `pacman -Rns luminos-dawn mkinitcpio-archiso` will still fail in the
-  e2e test**, because `luminos-dawn` isn't a real installed package on
-  the plain-Arch stand-in image (`pacman -R` aborts entirely if any
-  named target isn't found — it doesn't partially succeed). Building a
-  throwaway package just to satisfy this is possible (`makepkg` plus a
-  local `file://` repo) but adds meaningful complexity for a test-only
-  fixture problem, not a Dawn pipeline bug — the online path never
-  exercises `offline_cleanup` at all. Deferred rather than guessed at
-  further without seeing whether anything else needs fixing first; the
-  online e2e path is unaffected and is where this PR's first real CI
-  attention goes.
+- **The test ISO installs stand-in `luminos-dawn` and `luminos-keyring`
+  packages** (`tests/e2e/stand-ins/`, built by
+  `tests/e2e/build-stand-in-packages.sh` into a local `file://` repo
+  that mkarchiso installs from). This was first deferred as an accepted
+  gap, until CI confirmed it was the only thing failing the offline
+  install: `offline_cleanup`'s `pacman -Rns luminos-dawn
+  mkinitcpio-archiso` aborts outright when `luminos-dawn` isn't
+  installed (`pacman -R` doesn't partially succeed), and
+  `pacman-key --populate archlinux luminos` needs a `luminos` keyring.
+  Everything the test adds to the live system (`dawn-backend`, the
+  plan, the install-on-boot service, statically enabled from `/usr`)
+  lives in the stand-in `luminos-dawn`. Step 6 then removes all of it
+  from the installed system, as it will with the real package; before
+  this, an offline install would have kept the service and tried to
+  reinstall itself on first boot. The keyring holds a throwaway key
+  generated per build, which never signs anything.
 
 - **The loop-device integration test only covers the online
   (pacstrap) path.** The offline path unsquashes a path
@@ -189,7 +196,12 @@ Newest first.
   their services), `sudo` (step 8's drop-in), `zram-generator`
   (step 7's config) and `btrfs-progs` (mkinitcpio's `fsck` hook needs
   `fsck.btrfs` for a btrfs root, and without it `mkinitcpio -P` exits
-  non-zero, failing step 9). The e2e scripts swap this list into each online
+  non-zero, failing step 9). The list lives in
+  `tests/e2e/stand-in-packages.x86_64`, and the test ISO includes it too,
+  the way SPEC.md builds the real ISO from the same meta-packages: an
+  offline install unsquashes the live image, and releng alone lacks
+  `networkmanager`, `greetd` and `zram-generator`, so step 12 would
+  fail. The e2e scripts swap this list into each online
   plan's `packages`, since the plans themselves name the real
   meta-packages. It downloads the full dependency closure once from the
   real Arch mirror, resolved against an empty package database so

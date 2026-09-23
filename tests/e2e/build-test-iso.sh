@@ -8,6 +8,12 @@
 # and the result boots to a login prompt. Must run as root (mkarchiso
 # needs it) inside a disposable container, never on a developer machine.
 #
+# Like the real ISO, it's built from the same packages an online install
+# gets (the plain-Arch stand-ins in stand-in-packages.x86_64), plus a
+# luminos-dawn and a luminos keyring: stand-ins built by
+# build-stand-in-packages.sh, which carry dawn-backend, the plan and the
+# install-on-boot service.
+#
 # Usage: build-test-iso.sh <plan.json> <output.iso> [mirror-dir]
 #
 # [mirror-dir] is setup-local-mirror.sh's output, for online plans: the
@@ -16,6 +22,7 @@
 
 set -euo pipefail
 
+E2E_DIR="$(dirname "$0")"
 PLAN_FILE="${1:?usage: build-test-iso.sh <plan.json> <output.iso> [mirror-dir]}"
 OUTPUT_ISO="${2:?usage: build-test-iso.sh <plan.json> <output.iso> [mirror-dir]}"
 MIRROR_DIR="${3:-}"
@@ -36,23 +43,31 @@ echo "airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '1' '-b'
 # order — the same reasoning SPEC.md gives for by-id paths in general.
 TARGET_DEVICE="/dev/disk/by-id/virtio-dawn-target"
 
-mkdir -p "$PROFILE/airootfs/root"
 if [ -n "$MIRROR_DIR" ]; then
   jq --arg device "$TARGET_DEVICE" --slurpfile packages "$MIRROR_DIR/packages.json" \
     '.disk.device = $device | .packages = $packages[0]' "$PLAN_FILE" \
-    > "$PROFILE/airootfs/root/plan.json"
+    > "$WORKDIR/plan.json"
 else
   jq --arg device "$TARGET_DEVICE" '.disk.device = $device' "$PLAN_FILE" \
-    > "$PROFILE/airootfs/root/plan.json"
+    > "$WORKDIR/plan.json"
 fi
 
-mkdir -p "$PROFILE/airootfs/usr/local/bin"
-cp target/release/dawn-backend "$PROFILE/airootfs/usr/local/bin/dawn-backend"
-# mkarchiso copies airootfs/ without file modes (every file lands as
-# 0644), so a chmod here would be lost; profiledef.sh's file_permissions
-# is what sets modes in the image.
-echo 'file_permissions+=(["/usr/local/bin/dawn-backend"]="0:0:755")' \
-  >> "$PROFILE/profiledef.sh"
+REPO_DIR="$WORKDIR/stand-in-repo"
+"$E2E_DIR/build-stand-in-packages.sh" target/release/dawn-backend \
+  "$WORKDIR/plan.json" "$REPO_DIR"
+cat >> "$PROFILE/pacman.conf" <<EOF
+
+[dawn-e2e]
+SigLevel = Optional TrustAll
+Server = file://$REPO_DIR
+EOF
+{
+  echo
+  echo "# Added by Dawn's build-test-iso.sh."
+  cat "$E2E_DIR/stand-in-packages.x86_64"
+  echo luminos-dawn
+  echo luminos-keyring
+} >> "$PROFILE/packages.x86_64"
 
 # Modern releng's live session is just root, auto-logged in — no
 # separate live user (see DECISIONS.md). The real LuminOS ISO has one
@@ -77,38 +92,6 @@ if [ -n "$MIRROR_DIR" ]; then
   mkdir -p "$PROFILE/airootfs/etc"
   cp "$MIRROR_DIR/pacman.conf" "$PROFILE/airootfs/etc/pacman.conf"
 fi
-
-# A template unit so the target device (passed as the instance name) ends
-# up in ExecStart via %I without hardcoding it into the unit file.
-mkdir -p "$PROFILE/airootfs/etc/systemd/system" \
-  "$PROFILE/airootfs/etc/systemd/system/multi-user.target.wants"
-cat > "$PROFILE/airootfs/etc/systemd/system/dawn-e2e-install@.service" <<'EOF'
-[Unit]
-Description=Dawn e2e test: install plan.json onto the target disk
-After=multi-user.target network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-# The marker strings are what qemu-run.sh's wait loop watches for on the
-# serial console.
-ExecStart=/bin/sh -c '/usr/local/bin/dawn-backend --target %I /root/plan.json \
-  && echo DAWN-E2E-INSTALL-OK || echo DAWN-E2E-INSTALL-FAILED'
-ExecStartPost=/usr/bin/systemctl poweroff
-StandardOutput=tty
-StandardError=tty
-TTYPath=/dev/ttyS0
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Instantiate it for the real target device (systemd escapes the
-# instance name for the unit filename; %I in ExecStart above gives it
-# back unescaped).
-ESCAPED_DEVICE="$(systemd-escape "$TARGET_DEVICE")"
-ln -sf "../dawn-e2e-install@.service" \
-  "$PROFILE/airootfs/etc/systemd/system/multi-user.target.wants/dawn-e2e-install@${ESCAPED_DEVICE}.service"
 
 mkarchiso -v -w "$WORKDIR/work" -o "$WORKDIR/out" "$PROFILE"
 cp "$WORKDIR"/out/*.iso "$OUTPUT_ISO"
