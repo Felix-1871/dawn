@@ -86,7 +86,23 @@ impl Adapter for ArchAdapter {
                     layout.target.clone(),
                 ];
                 args.extend(plan.packages.iter().cloned());
-                vec![Action::Run(Invocation::new("pacstrap", args))]
+                vec![
+                    Action::Run(Invocation::new("pacstrap", args)),
+                    // -K's `pacman-key --init` runs outside pacstrap's PID
+                    // namespace, so the gpg-agent and keyboxd it starts
+                    // for the target's keyring outlive pacstrap and keep
+                    // files under the target open, which makes step 12's
+                    // unmount fail with "target is busy".
+                    Action::Run(Invocation::new(
+                        "gpgconf",
+                        [
+                            "--homedir",
+                            &format!("{}/etc/pacman.d/gnupg", layout.target),
+                            "--kill",
+                            "all",
+                        ],
+                    )),
+                ]
             }
             Source::Squashfs => vec![
                 Action::Run(Invocation::new(

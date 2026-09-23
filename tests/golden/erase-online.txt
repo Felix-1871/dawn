@@ -24,6 +24,7 @@ mkdir -p /mnt/target/boot
 mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1 /mnt/target/boot
 ==> Step 5: Install the base system
 pacstrap -K -C /etc/pacman.conf /mnt/target luminos-base luminos-desktop
+gpgconf --homedir /mnt/target/etc/pacman.d/gnupg --kill all
 ==> Step 7: Write fstab, locale, keymap, timezone, hostname, zram
 genfstab -U /mnt/target  # stdout appended to /mnt/target/etc/fstab
 uncomment "en_US.UTF-8 UTF-8" in /mnt/target/etc/locale.gen
