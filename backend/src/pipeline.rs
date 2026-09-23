@@ -11,6 +11,10 @@ use crate::runner::{Action, Capture, Invocation, Stdin};
 
 pub const TARGET: &str = "/mnt/target";
 
+/// The live session's install log (SPEC.md "On failure"), copied into
+/// the target by step 12.
+pub const LOG_FILE: &str = "/var/log/dawn.log";
+
 pub struct PipelineStep {
     pub number: u32,
     pub name: &'static str,
@@ -416,7 +420,7 @@ fn step12_finish(plan: &InstallPlan, layout: &DiskLayout, adapter: &dyn Adapter)
     let mut actions = adapter.services(plan, layout);
     actions.push(Action::Run(Invocation::new(
         "cp",
-        ["/var/log/dawn.log", &format!("{TARGET}/var/log/dawn.log")],
+        [LOG_FILE, &format!("{TARGET}{LOG_FILE}")],
     )));
     actions.push(Action::Run(Invocation::new("umount", ["-R", TARGET])));
     actions.push(Action::Run(Invocation::new("sync", Vec::<String>::new())));

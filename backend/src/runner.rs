@@ -223,18 +223,55 @@ impl Runner for DryRunRunner {
 
 /// Actually spawns processes and writes files. Only ever constructed after
 /// the CLI's safety checks (`--target` matches the plan, disk isn't
-/// mounted or the running system) have passed — see `main.rs`.
+/// mounted or the running system) have passed — see `main.rs`. Logs each
+/// action before running it, in the same redacted form dry-run prints.
 #[derive(Debug, Default)]
-pub struct RealRunner;
+pub struct RealRunner {
+    log_file: Option<std::fs::File>,
+}
 
 impl RealRunner {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Like [`RealRunner::new`], but every logged line also goes to
+    /// `path`, which starts out empty. A real install logs to
+    /// `/var/log/dawn.log` (SPEC.md "On failure"), and step 12 copies that
+    /// file into the target.
+    pub fn with_log_file(path: &str) -> Result<Self, RunnerError> {
+        let file = std::fs::File::create(path).map_err(|source| RunnerError::Write {
+            path: path.to_string(),
+            source,
+        })?;
+        Ok(Self {
+            log_file: Some(file),
+        })
+    }
+
+    /// Prints `line` to stdout and appends it to the log file, if any.
+    pub fn log(&mut self, line: &str) {
+        println!("{line}");
+        self.append_to_log_file(line);
+    }
+
+    /// Like [`RealRunner::log`], for errors: printed to stderr instead.
+    pub fn log_error(&mut self, line: &str) {
+        eprintln!("{line}");
+        self.append_to_log_file(line);
+    }
+
+    fn append_to_log_file(&mut self, line: &str) {
+        // A lost log line isn't worth failing an install over.
+        if let Some(file) = &mut self.log_file {
+            let _ = writeln!(file, "{line}");
+        }
     }
 }
 
 impl Runner for RealRunner {
     fn run(&mut self, action: &Action) -> Result<(), RunnerError> {
+        self.log(&format_action(action));
         match action {
             Action::Run(inv) => run_invocation(inv),
             Action::WriteFile { path, content } => write_file(path, content),
@@ -479,6 +516,53 @@ mod tests {
             .unwrap();
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "ada-laptop\n");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn real_runner_logs_steps_and_actions_to_a_fresh_log_file() {
+        let dir = unique_temp_dir();
+        let log_path = dir.join("dawn.log").to_str().unwrap().to_string();
+        let hostname = dir.join("hostname").to_str().unwrap().to_string();
+        std::fs::write(&log_path, "a previous install's log\n").unwrap();
+
+        let mut runner = RealRunner::with_log_file(&log_path).unwrap();
+        runner.log("==> Step 7: Write the hostname");
+        runner
+            .run(&Action::WriteFile {
+                path: hostname.clone(),
+                content: "ada-laptop\n".to_string(),
+            })
+            .unwrap();
+        runner.log_error("error: something went wrong");
+
+        assert_eq!(
+            std::fs::read_to_string(&log_path).unwrap(),
+            format!(
+                "==> Step 7: Write the hostname\n\
+                 write {hostname}\n    <<< ada-laptop\n\
+                 error: something went wrong\n"
+            )
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_log_file_never_sees_redacted_stdin() {
+        let dir = unique_temp_dir();
+        let log_path = dir.join("dawn.log").to_str().unwrap().to_string();
+
+        let mut runner = RealRunner::with_log_file(&log_path).unwrap();
+        runner
+            .run(&Action::Run(
+                Invocation::new("cat", Vec::<String>::new())
+                    .with_stdin(Stdin::Redacted("ada:hunter2".to_string())),
+            ))
+            .unwrap();
+
+        let log = std::fs::read_to_string(&log_path).unwrap();
+        assert!(log.contains("[REDACTED]"));
+        assert!(!log.contains("hunter2"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

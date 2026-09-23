@@ -103,13 +103,21 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let mut runner = runner::RealRunner::new();
+    let mut runner = match runner::RealRunner::with_log_file(pipeline::LOG_FILE) {
+        Ok(runner) => runner,
+        Err(err) => {
+            eprintln!("error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
     for step in &steps {
-        println!("==> Step {}: {}", step.number, step.name);
+        runner.log(&format!("==> Step {}: {}", step.number, step.name));
         for action in &step.actions {
-            println!("{}", runner::format_action(action));
             if let Err(err) = runner.run(action) {
-                eprintln!("error: step {} ({}) failed: {err}", step.number, step.name);
+                runner.log_error(&format!(
+                    "error: step {} ({}) failed: {err}",
+                    step.number, step.name
+                ));
                 best_effort_unmount();
                 return ExitCode::FAILURE;
             }
