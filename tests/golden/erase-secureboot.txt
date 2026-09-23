@@ -7,9 +7,11 @@ sfdisk --wipe always /dev/disk/by-id/nvme-EXAMPLE_SERIAL
     <<< size=1GiB, type=uefi, name="ESP"
     <<< type=linux, name="root"
 partprobe /dev/disk/by-id/nvme-EXAMPLE_SERIAL
+udevadm settle
 ==> Step 3: Format and create btrfs subvolumes
 mkfs.fat -F32 -n ESP /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1
 mkfs.btrfs -f -L root /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2
+mkdir -p /mnt/target
 mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 /mnt/target
 btrfs subvolume create /mnt/target/@
 btrfs subvolume create /mnt/target/@home

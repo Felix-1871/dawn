@@ -166,15 +166,24 @@ fn step2_partition(plan: &InstallPlan) -> Vec<Action> {
                         .with_stdin(Stdin::Plain(script)),
                 ),
                 Action::Run(Invocation::new("partprobe", [plan.disk.device.as_str()])),
+                udev_settle(),
             ]
         }
         DiskMode::Manual => {
-            vec![Action::Run(Invocation::new(
-                "partprobe",
-                [plan.disk.device.as_str()],
-            ))]
+            vec![
+                Action::Run(Invocation::new("partprobe", [plan.disk.device.as_str()])),
+                udev_settle(),
+            ]
         }
     }
+}
+
+/// The kernel knows about new partitions as soon as partprobe returns,
+/// but their `/dev/disk/by-id/...-partN` links come from udev a moment
+/// later, and step 3 formats through exactly those paths. Without a
+/// running udev (a plain container) this returns at once.
+fn udev_settle() -> Action {
+    Action::Run(Invocation::new("udevadm", ["settle"]))
 }
 
 fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
@@ -188,6 +197,7 @@ fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                 "mkfs.btrfs",
                 ["-f", "-L", "root", &layout.root_device],
             )),
+            Action::Run(Invocation::new("mkdir", ["-p", TARGET])),
             Action::Run(Invocation::new(
                 "mount",
                 [layout.root_device.as_str(), TARGET],
@@ -226,6 +236,7 @@ fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                 };
                 actions.push(Action::Run(mkfs));
                 if partition.role == PartitionRole::Root {
+                    actions.push(Action::Run(Invocation::new("mkdir", ["-p", TARGET])));
                     actions.push(Action::Run(Invocation::new(
                         "mount",
                         [partition.device.as_str(), TARGET],
