@@ -182,14 +182,22 @@ Newest first.
   container doesn't have, and Secure Boot itself is M4 scope, not M1.
 
 - **The local pinned mirror (`tests/e2e/setup-local-mirror.sh`) mirrors
-  plain Arch's `base`, `linux` and `mkinitcpio` for now**, not
-  `luminos-base`/`luminos-desktop` (same reason as above — they don't
-  exist yet). It downloads them once from the real Arch mirror to
-  populate the local mirror; every actual install command in the tests
-  points only at that local mirror afterward, per CLAUDE.md's "never
-  point automated tests at public Arch or LuminOS mirrors" rule — the
-  one-time download is how a pinned local mirror gets built in the
-  first place, not a test running against a public mirror.
+  plain-Arch stand-ins for now**, not `luminos-base`/`luminos-desktop`
+  (same reason as above — they don't exist yet): `base`, `linux` and
+  `mkinitcpio`, plus the parts of those meta-packages the pipeline
+  itself relies on — `networkmanager` and `greetd` (step 12 enables
+  their services), `sudo` (step 8's drop-in) and `zram-generator`
+  (step 7's config). The e2e scripts swap this list into each online
+  plan's `packages`, since the plans themselves name the real
+  meta-packages. It downloads the full dependency closure once from the
+  real Arch mirror, resolved against an empty package database so
+  nothing is skipped for already being installed on the CI host. Every
+  install in the tests then gets a complete `pacman.conf` listing only
+  that local mirror (not a repo appended to the host's own config,
+  which would leave `[core]` and `[extra]` ahead of it), per CLAUDE.md's
+  "never point automated tests at public Arch or LuminOS mirrors" rule
+  — the one-time download is how a pinned local mirror gets built in
+  the first place, not a test running against a public mirror.
 
 - **CI (`.github/workflows/ci.yml`) runs the loop-device and QEMU
   end-to-end jobs inside an `archlinux:base-devel` container**, not

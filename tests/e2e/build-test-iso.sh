@@ -8,13 +8,17 @@
 # and the result boots to a login prompt. Must run as root (mkarchiso
 # needs it) inside a disposable container, never on a developer machine.
 #
-# Usage: build-test-iso.sh <plan.json> <output.iso> [pacman-conf-snippet]
+# Usage: build-test-iso.sh <plan.json> <output.iso> [mirror-dir]
+#
+# [mirror-dir] is setup-local-mirror.sh's output, for online plans: the
+# live system's pacstrap then sees that mirror and nothing else, and the
+# plan asks for the stand-in packages it carries.
 
 set -euo pipefail
 
-PLAN_FILE="${1:?usage: build-test-iso.sh <plan.json> <output.iso> [pacman-conf-snippet]}"
-OUTPUT_ISO="${2:?usage: build-test-iso.sh <plan.json> <output.iso> [pacman-conf-snippet]}"
-MIRROR_SNIPPET="${3:-}"
+PLAN_FILE="${1:?usage: build-test-iso.sh <plan.json> <output.iso> [mirror-dir]}"
+OUTPUT_ISO="${2:?usage: build-test-iso.sh <plan.json> <output.iso> [mirror-dir]}"
+MIRROR_DIR="${3:-}"
 
 WORKDIR="$(mktemp -d /tmp/dawn-iso-build-XXXXXX)"
 PROFILE="$WORKDIR/profile"
@@ -26,8 +30,14 @@ cp -r /usr/share/archiso/configs/releng "$PROFILE"
 TARGET_DEVICE="/dev/disk/by-id/virtio-dawn-target"
 
 mkdir -p "$PROFILE/airootfs/root"
-jq --arg device "$TARGET_DEVICE" '.disk.device = $device' "$PLAN_FILE" \
-  > "$PROFILE/airootfs/root/plan.json"
+if [ -n "$MIRROR_DIR" ]; then
+  jq --arg device "$TARGET_DEVICE" --slurpfile packages "$MIRROR_DIR/packages.json" \
+    '.disk.device = $device | .packages = $packages[0]' "$PLAN_FILE" \
+    > "$PROFILE/airootfs/root/plan.json"
+else
+  jq --arg device "$TARGET_DEVICE" '.disk.device = $device' "$PLAN_FILE" \
+    > "$PROFILE/airootfs/root/plan.json"
+fi
 
 mkdir -p "$PROFILE/airootfs/usr/local/bin"
 cp target/release/dawn-backend "$PROFILE/airootfs/usr/local/bin/dawn-backend"
@@ -47,19 +57,14 @@ echo "luminos:x:1000:1000:LuminOS live user:/home/luminos:/usr/bin/bash" \
 echo "luminos:!:1::::::" >> "$PROFILE/airootfs/etc/shadow"
 mkdir -p "$PROFILE/airootfs/home/luminos"
 
-if [ -n "$MIRROR_SNIPPET" ]; then
-  # This overlay file replaces the live image's own /etc/pacman.conf
-  # wholesale (mkarchiso applies airootfs/ on top of the packages
-  # already installed into the image, so whatever we put here wins) —
-  # it can't just be the mirror snippet appended to nothing, or pacman
-  # loses its [options] section and Architecture setting.
+if [ -n "$MIRROR_DIR" ]; then
+  # Replaces the live image's own /etc/pacman.conf, which the arch
+  # adapter's pacstrap -C reads. mkarchiso copies airootfs/ in before it
+  # installs packages, and pacman.conf is a backup file in the pacman
+  # package, so pacman keeps this copy and sets its own aside as
+  # pacman.conf.pacnew.
   mkdir -p "$PROFILE/airootfs/etc"
-  {
-    echo "[options]"
-    echo "Architecture = auto"
-    echo
-    cat "$MIRROR_SNIPPET"
-  } > "$PROFILE/airootfs/etc/pacman.conf"
+  cp "$MIRROR_DIR/pacman.conf" "$PROFILE/airootfs/etc/pacman.conf"
 fi
 
 # A template unit so the target device (passed as the instance name) ends

@@ -59,7 +59,7 @@ jobs:
           trap 'kill "$(cat "$MIRROR_DIR/http-server.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
           tests/e2e/setup-local-mirror.sh "$MIRROR_DIR"
           tests/e2e/loop-device-install.sh online tests/plans/erase-online.json \
-            "$MIRROR_DIR/pacman.conf.snippet"
+            "$MIRROR_DIR"
 
   # M1's own Done-when check: "A plan file installs into a QEMU VM disk
   # both online and offline, and the VM boots to a login prompt." Needs

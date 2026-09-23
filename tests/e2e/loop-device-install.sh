@@ -15,19 +15,25 @@
 # variables a plain container doesn't have — that's run-e2e.sh's job
 # too, from M4 onward.
 #
-# Usage: loop-device-install.sh <mode: online> <plan-template.json> [pacman-conf-snippet]
+# Usage: loop-device-install.sh <mode: online> <plan-template.json> <mirror-dir>
+#
+# <mirror-dir> is setup-local-mirror.sh's output: the install sees that
+# mirror and nothing else, and asks for the stand-in packages it carries.
 
 set -euo pipefail
 
-MODE="${1:?usage: loop-device-install.sh <online|offline> <plan-template.json> [pacman-conf-snippet]}"
-PLAN_TEMPLATE="${2:?usage: loop-device-install.sh <online|offline> <plan-template.json> [pacman-conf-snippet]}"
-MIRROR_SNIPPET="${3:-}"
+USAGE="usage: loop-device-install.sh <online> <plan-template.json> <mirror-dir>"
+MODE="${1:?$USAGE}"
+PLAN_TEMPLATE="${2:?$USAGE}"
+MIRROR_DIR="${3:?$USAGE}"
 
 DISK_IMAGE="$(mktemp -u /tmp/dawn-loopdev-XXXXXX.img)"
 truncate -s 40G "$DISK_IMAGE"
 
 LOOP_DEV="$(losetup --find --show --partscan "$DISK_IMAGE")"
 BY_ID_LINK="/dev/disk/by-id/dawn-loopdev-test"
+PACMAN_CONF_BACKUP="$(mktemp /tmp/dawn-loopdev-pacman-XXXXXX.conf)"
+cp /etc/pacman.conf "$PACMAN_CONF_BACKUP"
 
 cleanup() {
   umount -R /mnt/verify 2>/dev/null || true
@@ -35,26 +41,31 @@ cleanup() {
   rm -f "$BY_ID_LINK" "${BY_ID_LINK}-part1" "${BY_ID_LINK}-part2"
   losetup -d "$LOOP_DEV" 2>/dev/null || true
   rm -f "$DISK_IMAGE"
+  cp "$PACMAN_CONF_BACKUP" /etc/pacman.conf
 }
 trap cleanup EXIT
 
-# A plain container has no udev running to create these itself (unlike
-# real hardware, or a real VM's guest — see build-test-iso.sh). Erase
-# mode always addresses partitions as <device>-part1/-part2 (SPEC.md:
-# disks are addressed by /dev/disk/by-id/ paths), so dawn-backend needs
-# these to exist before it can partition and format anything.
+# Loop devices have no serial number, so udev never gives them
+# /dev/disk/by-id/ links (and a plain container has no udev at all).
+# Erase mode always addresses partitions as <device>-part1/-part2
+# (SPEC.md: disks are addressed by /dev/disk/by-id/ paths), so
+# dawn-backend needs these to exist before it can partition and format
+# anything. The partition nodes they point at only appear once
+# dawn-backend partitions the disk, and only if /dev is the kernel's
+# devtmpfs rather than a container's snapshot of it (ci.yml bind-mounts
+# the host's /dev for this).
 mkdir -p /dev/disk/by-id
 ln -sf "$LOOP_DEV" "$BY_ID_LINK"
 ln -sf "${LOOP_DEV}p1" "${BY_ID_LINK}-part1"
 ln -sf "${LOOP_DEV}p2" "${BY_ID_LINK}-part2"
 
-if [ -n "$MIRROR_SNIPPET" ]; then
-  cat "$MIRROR_SNIPPET" >> /etc/pacman.conf
-  pacman -Sy --noconfirm
-fi
+# The arch adapter runs pacstrap with -C /etc/pacman.conf, so the
+# mirror's own config goes there for the length of the test.
+cp "$MIRROR_DIR/pacman.conf" /etc/pacman.conf
 
 PLAN_FILE="$(mktemp /tmp/dawn-loopdev-plan-XXXXXX.json)"
-jq --arg device "$BY_ID_LINK" '.disk.device = $device' "$PLAN_TEMPLATE" > "$PLAN_FILE"
+jq --arg device "$BY_ID_LINK" --slurpfile packages "$MIRROR_DIR/packages.json" \
+  '.disk.device = $device | .packages = $packages[0]' "$PLAN_TEMPLATE" > "$PLAN_FILE"
 
 echo "==> Running dawn-backend for real against $LOOP_DEV ($MODE)" >&2
 cargo run --release -p backend -- --target "$BY_ID_LINK" "$PLAN_FILE"

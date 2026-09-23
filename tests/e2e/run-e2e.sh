@@ -17,18 +17,18 @@ PLAN_TEMPLATE="tests/plans/erase-$MODE.json"
 
 cargo build --release -p backend
 
-MIRROR_SNIPPET=""
+MIRROR_DIR=""
 if [ "$MODE" = "online" ]; then
   MIRROR_DIR="$(mktemp -d /tmp/dawn-mirror-XXXXXX)"
-  MIRROR_SNIPPET="$MIRROR_DIR/pacman.conf.snippet"
   trap 'kill "$(cat "$MIRROR_DIR/http-server.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
   # 10.0.2.2 is SLIRP's address for the host running QEMU, reachable
-  # from the guest that build-test-iso.sh bakes this snippet into.
+  # from the guest that build-test-iso.sh bakes the mirror's
+  # pacman.conf into.
   "$E2E_DIR/setup-local-mirror.sh" "$MIRROR_DIR" 10.0.2.2
 fi
 
 ISO="$(mktemp -u /tmp/dawn-e2e-XXXXXX.iso)"
-"$E2E_DIR/build-test-iso.sh" "$PLAN_TEMPLATE" "$ISO" "$MIRROR_SNIPPET"
+"$E2E_DIR/build-test-iso.sh" "$PLAN_TEMPLATE" "$ISO" "$MIRROR_DIR"
 
 TARGET_DISK="$(mktemp -u /tmp/dawn-e2e-target-XXXXXX.qcow2)"
 qemu-img create -f qcow2 "$TARGET_DISK" 40G
