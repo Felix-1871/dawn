@@ -24,6 +24,13 @@ WORKDIR="$(mktemp -d /tmp/dawn-iso-build-XXXXXX)"
 PROFILE="$WORKDIR/profile"
 cp -r /usr/share/archiso/configs/releng "$PROFILE"
 
+# releng compresses its squashfs with xz, which takes about 15 minutes on
+# a two-CPU CI runner. This image is thrown away after one boot, so fast
+# zstd is the better trade for a somewhat bigger ISO. profiledef.sh is
+# sourced, so this later assignment wins.
+echo "airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '1' '-b' '1M')" \
+  >> "$PROFILE/profiledef.sh"
+
 # The test target disk is a virtio drive with serial=dawn-target, so it
 # always resolves to this by-id path regardless of device enumeration
 # order — the same reasoning SPEC.md gives for by-id paths in general.
