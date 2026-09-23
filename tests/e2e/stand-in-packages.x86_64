@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Plain-Arch stand-ins for luminos-base and luminos-desktop, which don't
+# exist yet (SPEC.md's "Changes outside Dawn"; see DECISIONS.md). Online
+# e2e installs pacstrap exactly this list from the local mirror
+# (setup-local-mirror.sh). The test ISO includes it too
+# (build-test-iso.sh), the way the real ISO is built from the same
+# meta-packages, so an offline install unsquashes the same set. Swap in
+# the real meta-packages once luminos-repository exists.
+#
+# archiso's packages.x86_64 format: one package per line, comments on
+# their own lines.
+
+base
+linux
+mkinitcpio
+# fsck.btrfs: mkinitcpio's fsck hook needs it for a btrfs root, and
+# step 9's `mkinitcpio -P` fails without it.
+btrfs-progs
+# Step 12 enables their services.
+networkmanager
+greetd
+# Step 8's sudoers drop-in.
+sudo
+# Step 7's zram config.
+zram-generator

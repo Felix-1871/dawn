@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Installs the plan baked into the e2e test ISO onto the target disk given
+# as the instance name, then powers off. Part of the stand-in luminos-dawn
+# package (see PKGBUILD). qemu-run.sh watches the serial console for the
+# marker strings below.
+
+[Unit]
+Description=Dawn e2e test: install the baked-in plan onto %I
+# Only from the live medium, never on a system this installed.
+ConditionKernelCommandLine=archisobasedir
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/bin/dawn-backend --target %I /usr/share/dawn-e2e/plan.json \
+  && echo DAWN-E2E-INSTALL-OK || echo DAWN-E2E-INSTALL-FAILED'
+ExecStartPost=/usr/bin/systemctl poweroff
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/ttyS0

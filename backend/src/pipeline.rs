@@ -7,9 +7,13 @@
 use plan::{DiskMode, InstallPlan, PartitionRole, Source};
 
 use crate::adapters::{Adapter, DiskLayout};
-use crate::runner::{Action, Invocation, Stdin};
+use crate::runner::{Action, Capture, Invocation, Stdin};
 
 pub const TARGET: &str = "/mnt/target";
+
+/// The live session's install log (SPEC.md "On failure"), copied into
+/// the target by step 12.
+pub const LOG_FILE: &str = "/var/log/dawn.log";
 
 pub struct PipelineStep {
     pub number: u32,
@@ -104,6 +108,7 @@ fn disk_layout(plan: &InstallPlan) -> DiskLayout {
             target,
             esp_device: format!("{}-part1", plan.disk.device),
             root_device: format!("{}-part2", plan.disk.device),
+            root_subvolume: Some("@".to_string()),
         },
         DiskMode::Manual => {
             let partitions = plan
@@ -123,10 +128,13 @@ fn disk_layout(plan: &InstallPlan) -> DiskLayout {
                 .expect("manual mode plans are validated to have exactly one root")
                 .device
                 .clone();
+            // Manual mode mounts the root partition's top level at / in
+            // step 4, not a subvolume.
             DiskLayout {
                 target,
                 esp_device: esp,
                 root_device: root,
+                root_subvolume: None,
             }
         }
     }
@@ -166,15 +174,24 @@ fn step2_partition(plan: &InstallPlan) -> Vec<Action> {
                         .with_stdin(Stdin::Plain(script)),
                 ),
                 Action::Run(Invocation::new("partprobe", [plan.disk.device.as_str()])),
+                udev_settle(),
             ]
         }
         DiskMode::Manual => {
-            vec![Action::Run(Invocation::new(
-                "partprobe",
-                [plan.disk.device.as_str()],
-            ))]
+            vec![
+                Action::Run(Invocation::new("partprobe", [plan.disk.device.as_str()])),
+                udev_settle(),
+            ]
         }
     }
+}
+
+/// The kernel knows about new partitions as soon as partprobe returns,
+/// but their `/dev/disk/by-id/...-partN` links come from udev a moment
+/// later, and step 3 formats through exactly those paths. Without a
+/// running udev (a plain container) this returns at once.
+fn udev_settle() -> Action {
+    Action::Run(Invocation::new("udevadm", ["settle"]))
 }
 
 fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
@@ -188,6 +205,7 @@ fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                 "mkfs.btrfs",
                 ["-f", "-L", "root", &layout.root_device],
             )),
+            Action::Run(Invocation::new("mkdir", ["-p", TARGET])),
             Action::Run(Invocation::new(
                 "mount",
                 [layout.root_device.as_str(), TARGET],
@@ -226,6 +244,7 @@ fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                 };
                 actions.push(Action::Run(mkfs));
                 if partition.role == PartitionRole::Root {
+                    actions.push(Action::Run(Invocation::new("mkdir", ["-p", TARGET])));
                     actions.push(Action::Run(Invocation::new(
                         "mount",
                         [partition.device.as_str(), TARGET],
@@ -300,24 +319,24 @@ fn step7_system_config(
     let mut actions = vec![
         Action::Run(
             Invocation::new("genfstab", ["-U", TARGET])
-                .with_note(format!("appended to {TARGET}/etc/fstab")),
+                .with_capture(Capture::AppendStdoutTo(format!("{TARGET}/etc/fstab"))),
         ),
-        Action::WriteFile {
+        Action::UncommentLine {
             path: format!("{TARGET}/etc/locale.gen"),
-            description: format!("uncomment {}", plan.locale),
+            pattern: format!("{} UTF-8", plan.locale),
         },
         Action::Run(arch_chroot(layout, ["locale-gen"])),
         Action::WriteFile {
             path: format!("{TARGET}/etc/vconsole.conf"),
-            description: format!("KEYMAP={}", plan.keyboard.layout),
+            content: format!("KEYMAP={}\n", plan.keyboard.layout),
         },
         Action::WriteFile {
             path: format!("{TARGET}/etc/hostname"),
-            description: plan.hostname.clone(),
+            content: format!("{}\n", plan.hostname),
         },
         Action::WriteFile {
             path: format!("{TARGET}/etc/systemd/zram-generator.conf"),
-            description: "[zram0]".to_string(),
+            content: "[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n".to_string(),
         },
     ];
 
@@ -363,7 +382,7 @@ fn step8_user(plan: &InstallPlan, layout: &DiskLayout, adapter: &dyn Adapter) ->
         Action::Run(arch_chroot(layout, ["passwd", "-l", "root"])),
         Action::WriteFile {
             path: format!("{TARGET}/etc/sudoers.d/10-{group}"),
-            description: format!("%{group} ALL=(ALL:ALL) ALL"),
+            content: format!("%{group} ALL=(ALL:ALL) ALL\n"),
         },
     ]
 }
@@ -401,7 +420,7 @@ fn step12_finish(plan: &InstallPlan, layout: &DiskLayout, adapter: &dyn Adapter)
     let mut actions = adapter.services(plan, layout);
     actions.push(Action::Run(Invocation::new(
         "cp",
-        ["/var/log/dawn.log", &format!("{TARGET}/var/log/dawn.log")],
+        [LOG_FILE, &format!("{TARGET}{LOG_FILE}")],
     )));
     actions.push(Action::Run(Invocation::new("umount", ["-R", TARGET])));
     actions.push(Action::Run(Invocation::new("sync", Vec::<String>::new())));
