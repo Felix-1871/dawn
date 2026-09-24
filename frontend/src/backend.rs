@@ -299,21 +299,35 @@ fn spawn_event_reader(
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt as _;
-    use std::sync::mpsc;
+    use std::sync::{LazyLock, mpsc};
     use std::time::Duration;
 
     use super::*;
 
-    /// A stand-in for `dawn-backend`: a shell script that ignores its
-    /// arguments.
-    fn fake_backend(name: &str, script: &str) -> BackendCommand {
+    /// Stand-ins for `dawn-backend`: shell scripts that ignore their
+    /// arguments. All written before any test starts one: executing a
+    /// file while another thread's child may still hold it open for
+    /// writing fails with ETXTBSY.
+    static FAKE_BACKENDS: LazyLock<PathBuf> = LazyLock::new(|| {
         let dir = std::env::temp_dir().join(format!("dawn-fake-backend-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join(name);
-        std::fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for (name, script) in [
+            (
+                "answers-once",
+                r#"read request; echo '{"event":"online","online":true}'"#,
+            ),
+            ("exits", "read request; exit 3"),
+        ] {
+            let program = dir.join(name);
+            std::fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        dir
+    });
+
+    fn fake_backend(name: &str) -> BackendCommand {
         BackendCommand {
-            program,
+            program: FAKE_BACKENDS.join(name),
             dry_run: true,
             config: None,
         }
@@ -329,10 +343,7 @@ mod tests {
 
     #[test]
     fn a_probe_backend_that_stopped_is_started_again() {
-        let backend = SocketBackend::new(fake_backend(
-            "answers-once",
-            r#"read request; echo '{"event":"online","online":true}'"#,
-        ));
+        let backend = SocketBackend::new(fake_backend("answers-once"));
         assert_eq!(backend.check_online(), Ok(true));
         assert!(
             backend.check_online().is_err(),
@@ -343,7 +354,7 @@ mod tests {
 
     #[test]
     fn an_install_backend_that_went_away_is_started_again_for_retry() {
-        let backend = SocketBackend::new(fake_backend("exits", "read request; exit 3"));
+        let backend = SocketBackend::new(fake_backend("exits"));
         let (events, received) = mpsc::channel();
         let sink: EventSink = Arc::new(move |event| {
             let _ = events.send(event);
