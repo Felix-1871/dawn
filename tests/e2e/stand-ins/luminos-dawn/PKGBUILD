@@ -19,8 +19,10 @@ pkgdesc='Dawn e2e test stand-in: dawn-backend and a GUI driver that installs on 
 arch=('x86_64')
 url='https://github.com/Felix-1871/dawn'
 license=('GPL-3.0-or-later')
-# pkexec, and the shared libraries Slint links.
-depends=('polkit' 'fontconfig')
+# pkexec; the shared libraries Slint links; the keyboard layouts the
+# Keyboard screen lists (languages and timezones come from glibc and
+# tzdata, always there).
+depends=('polkit' 'fontconfig' 'xkeyboard-config')
 options=('!debug' '!strip')
 source=('dawn-backend' 'gui_driver' 'dawn-e2e-driver' 'dawn-e2e.service'
         'installer.toml' 'org.luminos.dawn.policy' '50-luminos-dawn.rules')

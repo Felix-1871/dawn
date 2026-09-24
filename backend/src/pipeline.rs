@@ -189,6 +189,9 @@ fn step1_validate(plan: &InstallPlan) -> Vec<Action> {
             pacman_conf: PACMAN_CONF.to_string(),
         });
     }
+    if plan.secure_boot.enroll {
+        actions.push(Action::CheckSetupMode);
+    }
     actions
 }
 
@@ -353,9 +356,18 @@ fn step7_system_config(
             path: format!("{TARGET}/etc/locale.conf"),
             content: format!("LANG={}\n", plan.locale),
         },
+        Action::WriteConsoleKeymap {
+            root: TARGET.to_string(),
+            layout: plan.keyboard.layout.clone(),
+            variant: plan.keyboard.variant.clone(),
+        },
+        // The system-wide XKB layout, where `localectl set-x11-keymap`
+        // keeps it: `localectl status` and the login screen read it from
+        // here, while Hyprland sessions get theirs from `/etc/skel`
+        // (the adapter's keyboard config below).
         Action::WriteFile {
-            path: format!("{TARGET}/etc/vconsole.conf"),
-            content: format!("KEYMAP={}\n", plan.keyboard.layout),
+            path: format!("{TARGET}/etc/X11/xorg.conf.d/00-keyboard.conf"),
+            content: x11_keyboard_conf(&plan.keyboard.layout, &plan.keyboard.variant),
         },
         Action::Symlink {
             root: TARGET.to_string(),
@@ -392,6 +404,23 @@ fn step7_system_config(
     actions
 }
 
+/// The file `localectl set-x11-keymap` writes, in its format.
+fn x11_keyboard_conf(layout: &str, variant: &str) -> String {
+    let mut conf = String::from(
+        "# Written by dawn-backend in systemd-localed's format; change it with\n\
+         # localectl set-x11-keymap.\n\
+         Section \"InputClass\"\n        \
+         Identifier \"system-keyboard\"\n        \
+         MatchIsKeyboard \"on\"\n",
+    );
+    conf.push_str(&format!("        Option \"XkbLayout\" \"{layout}\"\n"));
+    if !variant.is_empty() {
+        conf.push_str(&format!("        Option \"XkbVariant\" \"{variant}\"\n"));
+    }
+    conf.push_str("EndSection\n");
+    conf
+}
+
 fn step8_user(plan: &InstallPlan, layout: &DiskLayout, adapter: &dyn Adapter) -> Vec<Action> {
     let group = adapter.admin_group();
     vec![
@@ -424,17 +453,23 @@ fn step8_user(plan: &InstallPlan, layout: &DiskLayout, adapter: &dyn Adapter) ->
     ]
 }
 
+/// systemd-boot as its package installs it, before `bootctl install`
+/// copies it onto the ESP.
+const SYSTEMD_BOOT: &str = "/usr/lib/systemd/boot/efi/systemd-bootx64.efi";
+
+/// SPEC.md: "`create-keys`, then `sign -s` for the systemd-boot binary
+/// and each UKI, then `enroll-keys --microsoft` last." systemd-boot is
+/// signed where its package installs it, into the `.signed` copy that
+/// `bootctl install` (step 11) prefers when it copies the bootloader
+/// onto the ESP. `-s` records every file in sbctl's database, so its
+/// pacman hook re-signs them after updates.
 fn step10_secure_boot(layout: &DiskLayout) -> Vec<Action> {
+    let signed = format!("{SYSTEMD_BOOT}.signed");
     vec![
         Action::Run(arch_chroot(layout, ["sbctl", "create-keys"])),
         Action::Run(arch_chroot(
             layout,
-            [
-                "sbctl",
-                "sign",
-                "-s",
-                "/boot/EFI/systemd/systemd-bootx64.efi",
-            ],
+            ["sbctl", "sign", "-s", "-o", signed.as_str(), SYSTEMD_BOOT],
         )),
         Action::Run(arch_chroot(
             layout,

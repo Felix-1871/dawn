@@ -7,10 +7,10 @@ import { Button } from "std-widgets.slint";
 // disk before this screen's confirm, and the disk is named by model,
 // size and serial, not just a device path (SPEC.md "Disk safety").
 export component SummaryScreen inherits VerticalLayout {
-    in property <string> locale;
-    in property <string> kb-layout;
-    in property <string> kb-variant;
-    in property <string> timezone;
+    // How the Welcome, Keyboard and Timezone lists show what was picked.
+    in property <string> locale-label;
+    in property <string> keyboard-label;
+    in property <string> timezone-label;
     in property <string> disk-model;
     in property <int> disk-size-gib;
     in property <string> disk-serial;
@@ -35,9 +35,9 @@ export component SummaryScreen inherits VerticalLayout {
     Text { text: @tr("Summary"); font-size: 22px; font-weight: 700; }
     Text { text: @tr("Nothing is changed until you confirm."); wrap: word-wrap; }
 
-    Text { text: @tr("Language: {}", locale); }
-    Text { text: @tr("Keyboard: {} {}", kb-layout, kb-variant); }
-    Text { text: @tr("Timezone: {}", timezone); }
+    Text { text: @tr("Language: {}", locale-label); }
+    Text { text: @tr("Keyboard: {}", keyboard-label); }
+    Text { text: @tr("Timezone: {}", timezone-label); }
     Text {
         text: is-offline
             ? @tr("Install: offline, from this live image")

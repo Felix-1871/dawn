@@ -14,6 +14,7 @@
 
 pub mod backend;
 pub mod branding;
+pub mod data;
 pub mod mock_backend;
 pub mod state;
 pub mod system;
@@ -30,6 +31,7 @@ use plan::{InstallPlan, Source};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use backend::{Backend, EventSink};
+use data::{Data, DataFiles};
 use wifi::{ConnectError, Wifi};
 
 slint::include_modules!();
@@ -51,6 +53,8 @@ pub struct Services {
     pub wifi: Arc<dyn Wifi>,
     /// Where the error screen's Save log writes `dawn-install.log`.
     pub save_log_dir: PathBuf,
+    /// Where the language, keyboard and timezone lists come from.
+    pub data_files: DataFiles,
 }
 
 /// The live user's home directory, where Save log puts the log.
@@ -118,12 +122,14 @@ pub fn build_ui(
     app.set_install_log(ModelRc::new(VecModel::<SharedString>::default()));
 
     let session = Arc::new(Mutex::new(Session::default()));
+    let lists = Arc::new(Mutex::new(Lists::default()));
+    wire_lists(&app, &lists);
     wire_account_derivation(&app);
     wire_wifi(&app, &services);
     wire_install(&app, &services, &session, config.source.packages.clone());
     wire_error_screen(&app, &services, &session);
     wire_done_screen(&app);
-    start_probes(&app, &services);
+    start_probes(&app, &services, &lists);
 
     Ok(app)
 }
@@ -135,6 +141,7 @@ pub fn apply_branding(app: &AppWindow, branding: branding::Branding) {
     theme.set_accent(branding.accent_color);
     theme.set_website(branding.website.into());
     theme.set_support_url(branding.support_url.into());
+    theme.set_secure_boot_url(branding.secure_boot_url.into());
     theme.set_logo(branding.logo.clone());
     theme.set_icon(branding.icon);
     theme.set_welcome_text(branding.welcome_text.into());
@@ -143,10 +150,20 @@ pub fn apply_branding(app: &AppWindow, branding: branding::Branding) {
 /// Firmware, disks, whether the repositories are reachable, and whether
 /// there's Wi-Fi: what the Welcome screen waits for before it lets the
 /// install start.
-fn start_probes(app: &AppWindow, services: &Services) {
+fn start_probes(app: &AppWindow, services: &Services, lists: &Arc<Mutex<Lists>>) {
     let weak = app.as_weak();
     let services = services.clone();
+    let lists = Arc::clone(lists);
     std::thread::spawn(move || {
+        // The lists first: they're quick, and the Welcome screen shows
+        // one while the backend's probes run.
+        let data = Data::load(&services.data_files);
+        if let Ok(mut lists) = lists.lock() {
+            lists.data = data;
+        }
+        let shown = Arc::clone(&lists);
+        let _ = weak.upgrade_in_event_loop(move |app| show_lists(&app, &shown));
+
         let firmware = services.backend.probe_firmware();
         let disks = services.backend.list_disks();
         let online = services.backend.check_online();
@@ -157,6 +174,7 @@ fn start_probes(app: &AppWindow, services: &Services) {
                 Ok(firmware) => {
                     app.set_is_uefi(firmware.uefi);
                     app.set_is_setup_mode(firmware.setup_mode);
+                    app.set_firmware_secure_boot(firmware.secure_boot);
                     // SPEC.md: "Secure Boot checkbox appears only in Setup
                     // Mode, checked by default."
                     app.set_secure_boot_enroll(firmware.setup_mode);
@@ -182,6 +200,143 @@ fn start_probes(app: &AppWindow, services: &Services) {
                 scan_wifi(&app, &services);
             }
         });
+    });
+}
+
+/// The language, keyboard and timezone lists (empty until loaded), and
+/// which of the keyboard and timezone the user picked by hand, so a new
+/// language's guesses don't overwrite them.
+#[derive(Default)]
+struct Lists {
+    data: Data,
+    keyboard_picked: bool,
+    timezone_picked: bool,
+}
+
+fn choice_model(choices: Vec<data::Choice>) -> ModelRc<Choice> {
+    let rows: Vec<Choice> = choices
+        .into_iter()
+        .map(|choice| Choice {
+            value: choice.value.into(),
+            label: choice.label.into(),
+            detail: choice.detail.into(),
+        })
+        .collect();
+    ModelRc::new(VecModel::from(rows))
+}
+
+/// Fills the three lists, narrowed to their search fields, once loaded,
+/// and pre-selects the keyboard and timezone for the current language.
+fn show_lists(app: &AppWindow, lists: &Arc<Mutex<Lists>>) {
+    let Ok(mut lists) = lists.lock() else {
+        return;
+    };
+    app.set_locale_choices(choice_model(data::search(
+        &lists.data.locales,
+        &app.get_locale_query(),
+    )));
+    app.set_keyboard_choices(choice_model(data::search(
+        &lists.data.keyboards,
+        &app.get_keyboard_query(),
+    )));
+    app.set_timezone_choices(choice_model(data::search(
+        &lists.data.timezones,
+        &app.get_timezone_query(),
+    )));
+    let locale = app.get_locale().to_string();
+    pick_locale(app, &mut lists, &locale);
+}
+
+/// The language, and what it suggests for the keyboard and timezone
+/// (SPEC.md: the timezone is "guessed from the chosen locale"), unless
+/// the user already picked those.
+fn pick_locale(app: &AppWindow, lists: &mut Lists, locale: &str) {
+    let data = &lists.data;
+    app.set_locale(locale.into());
+    app.set_locale_label(Data::label(&data.locales, locale).unwrap_or(locale).into());
+    if !lists.keyboard_picked
+        && let Some(keyboard) = data.keyboard_for_locale(locale)
+    {
+        show_keyboard(app, data, &keyboard);
+    }
+    if !lists.timezone_picked
+        && let Some(timezone) = data.timezone_for_locale(locale)
+    {
+        show_timezone(app, data, &timezone);
+    }
+}
+
+fn show_keyboard(app: &AppWindow, data: &Data, value: &str) {
+    let (layout, variant) = data::split_keyboard(value);
+    app.set_kb_layout(layout.into());
+    app.set_kb_variant(variant.into());
+    app.set_keyboard_label(Data::label(&data.keyboards, value).unwrap_or(value).into());
+}
+
+fn show_timezone(app: &AppWindow, data: &Data, value: &str) {
+    app.set_timezone(value.into());
+    app.set_timezone_label(Data::label(&data.timezones, value).unwrap_or(value).into());
+}
+
+/// Searching and picking on the Welcome, Keyboard and Timezone screens.
+fn wire_lists(app: &AppWindow, lists: &Arc<Mutex<Lists>>) {
+    app.on_locale_query_edited({
+        let weak = app.as_weak();
+        let lists = Arc::clone(lists);
+        move |query| {
+            if let (Some(app), Ok(lists)) = (weak.upgrade(), lists.lock()) {
+                app.set_locale_choices(choice_model(data::search(&lists.data.locales, &query)));
+            }
+        }
+    });
+    app.on_locale_picked({
+        let weak = app.as_weak();
+        let lists = Arc::clone(lists);
+        move |choice| {
+            if let (Some(app), Ok(mut lists)) = (weak.upgrade(), lists.lock()) {
+                pick_locale(&app, &mut lists, &choice.value);
+            }
+        }
+    });
+
+    app.on_keyboard_query_edited({
+        let weak = app.as_weak();
+        let lists = Arc::clone(lists);
+        move |query| {
+            if let (Some(app), Ok(lists)) = (weak.upgrade(), lists.lock()) {
+                app.set_keyboard_choices(choice_model(data::search(&lists.data.keyboards, &query)));
+            }
+        }
+    });
+    app.on_keyboard_picked({
+        let weak = app.as_weak();
+        let lists = Arc::clone(lists);
+        move |choice| {
+            if let (Some(app), Ok(mut lists)) = (weak.upgrade(), lists.lock()) {
+                lists.keyboard_picked = true;
+                show_keyboard(&app, &lists.data, &choice.value);
+            }
+        }
+    });
+
+    app.on_timezone_query_edited({
+        let weak = app.as_weak();
+        let lists = Arc::clone(lists);
+        move |query| {
+            if let (Some(app), Ok(lists)) = (weak.upgrade(), lists.lock()) {
+                app.set_timezone_choices(choice_model(data::search(&lists.data.timezones, &query)));
+            }
+        }
+    });
+    app.on_timezone_picked({
+        let weak = app.as_weak();
+        let lists = Arc::clone(lists);
+        move |choice| {
+            if let (Some(app), Ok(mut lists)) = (weak.upgrade(), lists.lock()) {
+                lists.timezone_picked = true;
+                show_timezone(&app, &lists.data, &choice.value);
+            }
+        }
     });
 }
 

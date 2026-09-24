@@ -9,7 +9,7 @@
 //! runs it at boot as the live user, and qemu-run.sh watches the serial
 //! console for the markers printed here.
 //!
-//! Usage: gui_driver <online|offline|fail-then-offline> <target-disk> [--dry-run]
+//! Usage: gui_driver <online|offline|fail-then-offline|secure-boot> <target-disk> [--dry-run]
 //!
 //! `--dry-run` runs the installs as `dawn-backend --dry-run`, as the
 //! current user without pkexec: the whole GUI flow over the real socket
@@ -26,6 +26,9 @@
 //!   spare, so archiso has copied the image to RAM and unmounted the
 //!   stick, and the install has to use the copy.
 //!
+//! - secure-boot: as online, on firmware in Setup Mode, keeping the
+//!   Secure Boot checkbox, so the install sets up Secure Boot.
+//!
 //! In every scenario the Disk screen must offer the target disk and
 //! nothing else: the live medium never shows.
 
@@ -39,6 +42,7 @@ use std::time::Duration;
 
 use driver::{Answers, Network, click, fill_to_summary, wait_for_outcome};
 use frontend::backend::{Backend, BackendCommand, EventSink, Firmware, SocketBackend};
+use frontend::data::DataFiles;
 use frontend::wifi::NetworkManager;
 use frontend::{AppWindow, Services, build_ui, home_dir, load_config};
 use plan::InstallPlan;
@@ -52,7 +56,9 @@ const INSTALL: Duration = Duration::from_secs(30 * 60);
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let (Some(scenario), Some(target)) = (args.get(1).cloned(), args.get(2).cloned()) else {
-        eprintln!("usage: gui_driver <online|offline|fail-then-offline> <target-disk> [--dry-run]");
+        eprintln!(
+            "usage: gui_driver <online|offline|fail-then-offline|secure-boot> <target-disk> [--dry-run]"
+        );
         return ExitCode::from(2);
     };
     let dry_run = args.get(3).is_some_and(|arg| arg == "--dry-run");
@@ -79,6 +85,7 @@ async fn drive(scenario: &str, target: &str, dry_run: bool) -> Result<(), String
         )))),
         wifi: Arc::new(NetworkManager::new()),
         save_log_dir: home_dir(),
+        data_files: DataFiles::system(),
     };
     let app = build_ui(&config, services).map_err(|err| err.to_string())?;
     let answers = Answers::fixture(target);
@@ -97,6 +104,22 @@ async fn drive(scenario: &str, target: &str, dry_run: bool) -> Result<(), String
         }
         "offline" => {
             fill_to_summary(&app, Network::Skip, &answers).await?;
+            if only_target {
+                check_only_disk_offered(&app, target)?;
+            }
+            install_to_done(&app).await
+        }
+        "secure-boot" => {
+            let answers = Answers {
+                secure_boot: true,
+                ..answers
+            };
+            fill_to_summary(&app, Network::Online, &answers).await?;
+            if !app.get_is_setup_mode() || !app.get_secure_boot_enroll() {
+                return Err(
+                    "the firmware should be in Setup Mode, with Secure Boot set up".to_string(),
+                );
+            }
             if only_target {
                 check_only_disk_offered(&app, target)?;
             }

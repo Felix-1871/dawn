@@ -21,7 +21,9 @@ The meta-packages both the ISO and online installs are built from
   - `btrfs-progs`. Dawn's root filesystem is btrfs, and mkinitcpio's
     `fsck` hook needs `fsck.btrfs`; without it `mkinitcpio -P` fails
     and no UKIs are built.
-  - `networkmanager`, `sudo`, `zram-generator` and `sbctl`.
+  - `networkmanager`, `sudo`, `zram-generator` and `sbctl`. Dawn's
+    Secure Boot setup runs sbctl inside the new system, and sbctl's
+    pacman hook re-signs the bootloader and UKIs after updates.
   - `amd-ucode` and `intel-ucode`. The UKIs get microcode from
     mkinitcpio's `microcode` hook, which takes it from these packages.
 - `luminos-base` ships `/etc/mkinitcpio.conf` with systemd-based HOOKS,
@@ -48,6 +50,14 @@ The meta-packages both the ISO and online installs are built from
     be the one greetd reads. If `luminos-desktop` points greetd at
     another config file, or starts the session through a wrapper or
     uwsm rather than plain `Hyprland`, tell Dawn.
+  - The login screen should use the keyboard layout chosen in Dawn, or
+    a password with layout-dependent characters won't work there. Dawn
+    writes it where `localectl set-x11-keymap` does,
+    `/etc/X11/xorg.conf.d/00-keyboard.conf`, so `localectl status` (or
+    systemd-localed's `X11Layout` and `X11Variant` over D-Bus) reports
+    it; the greeter's compositor config should take its layout from
+    there. Hyprland sessions get theirs from the `keyboard.conf` Dawn
+    writes into `/etc/skel`.
 
 ### `luminos-keyring`
 
@@ -86,12 +96,18 @@ the ISO's `airootfs/` instead would stay behind.
   `org.luminos.dawn.policy` goes to `/usr/share/polkit-1/actions/`, and
   `50-luminos-dawn.rules`, which lets the live user `luminos` start the
   backend without a password, to `/usr/share/polkit-1/rules.d/`.
-- Runtime dependencies: `polkit` (pkexec) and `fontconfig` (the GUI
-  links it) for the GUI; for the backend, `arch-install-scripts`
+- Runtime dependencies: `polkit` (pkexec), `fontconfig` (the GUI
+  links it) and `xkeyboard-config` (the Keyboard screen's list of
+  layouts) for the GUI; for the backend, `arch-install-scripts`
   (pacstrap, arch-chroot, genfstab), `util-linux`, `btrfs-progs`,
   `dosfstools`, `parted` (partprobe), `squashfs-tools` (unsquashfs),
   `gnupg` and `curl` (it checks the repositories are reachable before
-  an online install).
+  an online install). The language and timezone lists come from glibc
+  and tzdata, which every system has.
+- The Done screen points people whose firmware wasn't in Setup Mode at
+  how to set up Secure Boot later: `branding.toml`'s `secure_boot_url`,
+  the Arch Wiki's sbctl section for now. A LuminOS page for it would be
+  better.
 
 ### `luminos-live`
 

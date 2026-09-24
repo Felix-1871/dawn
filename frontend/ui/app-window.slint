@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Theme } from "theme.slint";
+import { Choice } from "choice-list.slint";
 import { WelcomeScreen } from "screens/welcome.slint";
 import { NetworkScreen, WifiNetwork, WifiStatus } from "screens/network.slint";
 import { KeyboardScreen } from "screens/keyboard.slint";
@@ -12,7 +13,7 @@ import { InstallingScreen } from "screens/installing.slint";
 import { DoneScreen } from "screens/done.slint";
 import { ErrorScreen } from "screens/error.slint";
 
-export { DiskInfo, Theme, WifiNetwork, WifiStatus }
+export { Choice, DiskInfo, Theme, WifiNetwork, WifiStatus }
 
 // SPEC.md "User flow": nine screens, linear, with Back on every screen
 // until Install is pressed; Network only appears when offline; an
@@ -36,6 +37,8 @@ export component AppWindow inherits Window {
     in-out property <bool> is-offline: false;
     in-out property <bool> is-uefi: true;
     in-out property <bool> is-setup-mode: false;
+    // The firmware already enforces Secure Boot, with its own keys.
+    in-out property <bool> firmware-secure-boot: false;
     in property <[DiskInfo]> disks;
 
     // Wi-Fi, through NetworkManager (the Network screen).
@@ -47,6 +50,19 @@ export component AppWindow inherits Window {
     in-out property <string> selected-ssid;
     in-out property <string> wifi-password;
     in-out property <string> network-profile;
+
+    // The lists the Welcome, Keyboard and Timezone screens pick from,
+    // already narrowed to what each search field matches, and how each
+    // shows what's picked.
+    in property <[Choice]> locale-choices;
+    in-out property <string> locale-query;
+    in-out property <string> locale-label: "en_US.UTF-8";
+    in property <[Choice]> keyboard-choices;
+    in-out property <string> keyboard-query;
+    in-out property <string> keyboard-label: "us";
+    in property <[Choice]> timezone-choices;
+    in-out property <string> timezone-query;
+    in-out property <string> timezone-label;
 
     // Plan fields, one group per screen.
     in-out property <string> locale: "en_US.UTF-8";
@@ -82,6 +98,12 @@ export component AppWindow inherits Window {
     in-out property <string> save-log-error;
     in-out property <string> restart-error;
 
+    callback locale-query-edited(string);
+    callback locale-picked(Choice);
+    callback keyboard-query-edited(string);
+    callback keyboard-picked(Choice);
+    callback timezone-query-edited(string);
+    callback timezone-picked(Choice);
     callback full-name-edited(string);
     callback username-edited(string);
     callback hostname-edited(string);
@@ -115,7 +137,12 @@ export component AppWindow inherits Window {
     }
 
     if current-screen == 0: WelcomeScreen {
-        locale <=> root.locale;
+        locales: root.locale-choices;
+        locale: root.locale;
+        locale-label: root.locale-label;
+        locale-query <=> root.locale-query;
+        locale-query-edited(text) => { root.locale-query-edited(text); }
+        locale-picked(choice) => { root.locale-picked(choice); }
         is-uefi: root.is-uefi;
         probing: root.probing;
         probe-error: root.probe-error;
@@ -141,15 +168,24 @@ export component AppWindow inherits Window {
     }
 
     if current-screen == 2: KeyboardScreen {
-        layout <=> root.kb-layout;
-        variant <=> root.kb-variant;
+        keyboards: root.keyboard-choices;
+        keyboard: root.kb-variant == "" ? root.kb-layout : root.kb-layout + "(" + root.kb-variant + ")";
+        keyboard-label: root.keyboard-label;
+        keyboard-query <=> root.keyboard-query;
+        keyboard-query-edited(text) => { root.keyboard-query-edited(text); }
+        keyboard-picked(choice) => { root.keyboard-picked(choice); }
         preview-text <=> root.kb-preview;
         back => { root.go-back(); }
         next => { root.go-next(); }
     }
 
     if current-screen == 3: TimezoneScreen {
-        timezone <=> root.timezone;
+        timezones: root.timezone-choices;
+        timezone: root.timezone;
+        timezone-label: root.timezone-label;
+        timezone-query <=> root.timezone-query;
+        timezone-query-edited(text) => { root.timezone-query-edited(text); }
+        timezone-picked(choice) => { root.timezone-picked(choice); }
         back => { root.go-back(); }
         next => { root.go-next(); }
     }
@@ -182,10 +218,9 @@ export component AppWindow inherits Window {
     }
 
     if current-screen == 6: SummaryScreen {
-        locale: root.locale;
-        kb-layout: root.kb-layout;
-        kb-variant: root.kb-variant;
-        timezone: root.timezone;
+        locale-label: root.locale-label;
+        keyboard-label: root.keyboard-label;
+        timezone-label: root.timezone-label;
         disk-model: root.selected-model;
         disk-size-gib: root.selected-size-gib;
         disk-serial: root.selected-serial;
@@ -215,6 +250,7 @@ export component AppWindow inherits Window {
 
     if current-screen == 8: DoneScreen {
         secure-boot-enroll: root.secure-boot-enroll;
+        firmware-secure-boot: root.firmware-secure-boot;
         restart-error: root.restart-error;
         restart => { root.restart-requested(); }
         keep-live-session => { root.quit-requested(); }

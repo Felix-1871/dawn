@@ -172,6 +172,11 @@ fn validation_errors(plan: &InstallPlan, options: &Options) -> Vec<String> {
         },
         Err(message) => errors.push(message),
     }
+    // The GUI only offers Secure Boot in Setup Mode, but the firmware
+    // can have changed since, and a plan can come from anywhere.
+    if plan.secure_boot.enroll && !probe::probe_firmware().setup_mode {
+        errors.push(crate::runner::RunnerError::NotInSetupMode.to_string());
+    }
     errors
 }
 

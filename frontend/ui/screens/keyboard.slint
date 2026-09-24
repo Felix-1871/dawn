@@ -1,47 +1,55 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Button, ComboBox, LineEdit } from "std-widgets.slint";
+import { Button, LineEdit } from "std-widgets.slint";
+import { Choice, ChoiceList } from "../choice-list.slint";
 
-// SPEC.md: "Layout and variant | Live preview field". The full layout
-// list is M4's keyboard data; this fixed list stands in until then.
+// SPEC.md: "Layout and variant | Live preview field". Every XKB layout
+// and variant is one entry of the list, pre-selected from the language
+// on the Welcome screen. The preview field types in the live session's
+// own layout: Dawn doesn't switch it (DECISIONS.md, M4).
 export component KeyboardScreen inherits VerticalLayout {
-    in-out property <string> layout;
-    in-out property <string> variant;
+    in property <[Choice]> keyboards;
+    // The picked keyboard as XKB writes it, `de` or `de(nodeadkeys)`,
+    // and how the list shows it.
+    in property <string> keyboard;
+    in property <string> keyboard-label;
+    in-out property <string> keyboard-query;
     in-out property <string> preview-text;
 
+    callback keyboard-query-edited(string);
+    callback keyboard-picked(Choice);
     callback back();
     callback next();
 
     padding: 32px;
-    spacing: 16px;
+    spacing: 14px;
 
     Text { text: @tr("Keyboard"); font-size: 22px; font-weight: 700; }
-
-    Text { text: @tr("Layout"); }
-    ComboBox {
-        model: ["us", "de", "fr", "gb"];
-        current-value: layout;
-        selected(value) => { layout = value; }
+    Text {
+        text: @tr("Layout: {}", keyboard-label);
+        font-weight: 600;
     }
 
-    Text { text: @tr("Variant"); }
-    LineEdit {
-        text <=> variant;
-        placeholder-text: @tr("(none)");
+    ChoiceList {
+        vertical-stretch: 1;
+        choices: root.keyboards;
+        selected: root.keyboard;
+        search-label: @tr("Search keyboard layouts");
+        query <=> root.keyboard-query;
+        query-edited(text) => { root.keyboard-query-edited(text); }
+        picked(choice) => { root.keyboard-picked(choice); }
     }
 
     Text { text: @tr("Try it out"); }
     LineEdit {
         text <=> preview-text;
-        placeholder-text: @tr("Type here to check your layout");
+        placeholder-text: @tr("Type here to check your keyboard");
     }
-
-    Rectangle { vertical-stretch: 1; }
 
     HorizontalLayout {
         spacing: 12px;
         Button { text: @tr("Back"); clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
-        Button { text: @tr("Next"); primary: true; enabled: layout != ""; clicked => { next(); } }
+        Button { text: @tr("Next"); primary: true; enabled: keyboard != ""; clicked => { next(); } }
     }
 }

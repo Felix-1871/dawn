@@ -7,9 +7,11 @@
 //! for `dawn-backend`.
 //!
 //! Still M2's Done-when check ("Clicking through produces a valid plan
-//! identical to a hand-written one"), plus M3's flows: the Network screen
+//! identical to a hand-written one"), plus M3's flows (the Network screen
 //! when offline, the error screen after a failed install, Save log,
-//! Retry from start and the offline fallback.
+//! Retry from start and the offline fallback) and M4's: the Secure Boot
+//! checkbox in Setup Mode, and the language, keyboard and timezone
+//! lists, read from small copies of the system files they come from.
 //!
 //! Slint's testing backend is set up once per process, so every scenario
 //! runs in sequence inside one test.
@@ -25,6 +27,7 @@ use frontend::mock_backend::{self, MockBackend, MockWifi};
 use frontend::{AppWindow, Services, build_ui};
 use plan::Source;
 use plan::config::InstallerConfig;
+use slint::Model as _;
 
 fn fixture() -> serde_json::Value {
     let path = concat!(
@@ -48,6 +51,7 @@ fn start(backend: &Arc<MockBackend>) -> Result<AppWindow, String> {
             backend: backend.clone(),
             wifi: Arc::new(MockWifi),
             save_log_dir: log_dir(),
+            data_files: driver::fixture_data_files(),
         },
     )
     .map_err(|err| err.to_string())
@@ -175,6 +179,51 @@ async fn secure_boot_is_offered_in_setup_mode() -> Result<(), String> {
     Ok(())
 }
 
+/// SPEC.md: the timezone is "guessed from the chosen locale", and so is
+/// the keyboard (DECISIONS.md, M4). What the user picked by hand stays
+/// when the language changes again.
+async fn a_language_preselects_its_keyboard_and_timezone() -> Result<(), String> {
+    let backend = Arc::new(MockBackend::new());
+    let app = start(&backend)?;
+    driver::wait_until("the lists", OUTCOME, || {
+        app.get_locale_choices().row_count() > 0
+    })
+    .await?;
+    assert_eq!(app.get_locale_label(), "American English (United States)");
+    assert_eq!(app.get_kb_layout(), "us");
+    assert_eq!(app.get_timezone(), "America/New_York");
+
+    driver::pick(&app, "Search languages", "de_DE.UTF-8", |app| {
+        app.get_locale_choices()
+    })?;
+    assert_eq!(app.get_locale(), "de_DE.UTF-8");
+    assert_eq!(app.get_kb_layout(), "de");
+    assert_eq!(app.get_keyboard_label(), "German");
+    assert_eq!(app.get_timezone(), "Europe/Berlin");
+    assert_eq!(app.get_timezone_label(), "Europe/Berlin");
+
+    driver::wait_until("the probes", OUTCOME, || !app.get_probing()).await?;
+    click(&app, "Install")?;
+    expect_screen(&app, driver::KEYBOARD)?;
+    driver::pick(&app, "Search keyboard layouts", "de(nodeadkeys)", |app| {
+        app.get_keyboard_choices()
+    })?;
+    assert_eq!(app.get_kb_variant(), "nodeadkeys");
+    click(&app, "Back")?;
+    expect_screen(&app, driver::WELCOME)?;
+
+    driver::pick(&app, "Search languages", "en_US.UTF-8", |app| {
+        app.get_locale_choices()
+    })?;
+    assert_eq!(
+        (app.get_kb_layout().as_str(), app.get_kb_variant().as_str()),
+        ("de", "nodeadkeys"),
+        "a keyboard picked by hand stays"
+    );
+    assert_eq!(app.get_timezone(), "America/New_York");
+    Ok(())
+}
+
 async fn an_unavailable_disk_cant_be_picked() -> Result<(), String> {
     let backend = Arc::new(MockBackend::new());
     let app = start(&backend)?;
@@ -195,6 +244,7 @@ fn clickthrough() {
         joining_wifi_carries_the_profile_into_the_plan().await?;
         a_failed_install_shows_the_error_screen_with_its_log().await?;
         secure_boot_is_offered_in_setup_mode().await?;
+        a_language_preselects_its_keyboard_and_timezone().await?;
         an_unavailable_disk_cant_be_picked().await?;
         Ok(())
     })

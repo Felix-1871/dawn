@@ -2,17 +2,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # M3's Done-when check: "Dawn installs a VM end to end from the GUI,
-# online and offline; a forced failure shows the error screen with log."
-# Each scenario boots the test ISO in QEMU, where gui_driver clicks
-# through Dawn's real GUI (DECISIONS.md, M3), then boots the installed
-# disk to a login prompt, M1's check. Root, /dev/kvm, and a disposable
-# environment required; see CLAUDE.md.
+# online and offline; a forced failure shows the error screen with log",
+# and M4's: "In OVMF Setup Mode, the installed system boots with Secure
+# Boot enforcing." Each scenario boots the test ISO in QEMU, where
+# gui_driver clicks through Dawn's real GUI (DECISIONS.md, M3), then
+# boots the installed disk and logs in on its serial console as the new
+# user, with the password given in the GUI. Root, /dev/kvm, and a
+# disposable environment required; see CLAUDE.md.
 #
 # Usage:
 #   run-e2e.sh prepare
 #     Builds dawn-backend and gui_driver, the local mirror and the test
 #     ISO, once, for every scenario.
-#   run-e2e.sh <online|offline|fail-then-offline>
+#   run-e2e.sh <online|offline|fail-then-offline|secure-boot>
 #     online: the mirror answers, so the GUI skips the Network screen
 #       and pacstrap installs from the mirror.
 #     offline: no mirror answers, so the Network screen shows; the
@@ -21,6 +23,9 @@
 #       packages, so pacstrap fails in step 5. The error screen must
 #       show the step, its log and the offline option, which then
 #       installs from the image archiso copied to RAM.
+#     secure-boot: online, on OVMF's Secure Boot build in Setup Mode,
+#       keeping the GUI's Secure Boot checkbox; the installed system must
+#       then boot with Secure Boot enforcing.
 #
 # Works in DAWN_E2E_WORK (default /tmp/dawn-e2e); its serial logs stay
 # there for CI to upload.
@@ -34,8 +39,9 @@ ISO="$WORK/dawn-e2e.iso"
 MIRROR="$WORK/mirror"
 MIRROR_DB_ONLY="$WORK/mirror-db-only"
 SERVER_PID="$WORK/http-server.pid"
-# Answers::fixture's password in frontend/tests/driver/mod.rs: never
-# printed, whatever else the install shows.
+# Answers::fixture's user in frontend/tests/driver/mod.rs. The password
+# is never printed, whatever else the install shows.
+USERNAME="ada"
 PASSWORD="correct-horse-battery-staple"
 
 stop_mirror() {
@@ -79,17 +85,20 @@ run_scenario() {
   local install_log="$WORK/install-$scenario.log"
   local login_log="$WORK/login-$scenario.log"
   local target="$WORK/target-$scenario.qcow2"
+  # A fresh variable store, so the firmware starts in Setup Mode.
+  local vars="$WORK/vars-$scenario.fd"
+  rm -f "$vars"
 
   trap stop_mirror EXIT
   case "$scenario" in
-    online) "$E2E_DIR/serve-mirror.sh" "$MIRROR" "$SERVER_PID" ;;
+    online|secure-boot) "$E2E_DIR/serve-mirror.sh" "$MIRROR" "$SERVER_PID" ;;
     fail-then-offline) "$E2E_DIR/serve-mirror.sh" "$MIRROR_DB_ONLY" "$SERVER_PID" ;;
     offline) ;;
   esac
 
   qemu-img create -f qcow2 "$target" 40G
   echo "==> Installing ($scenario) through the GUI" >&2
-  "$E2E_DIR/qemu-run.sh" install "$ISO" "$target" "$scenario" "$install_log" 1800
+  "$E2E_DIR/qemu-run.sh" install "$ISO" "$target" "$vars" "$scenario" "$install_log" 1800
   stop_mirror
 
   # The stand-in luminos-live was really installed and running on the
@@ -104,23 +113,33 @@ run_scenario() {
     fail "the user's password showed on the console"
   fi
 
-  echo "==> Booting the installed disk and waiting for a login prompt" >&2
-  "$E2E_DIR/qemu-run.sh" verify-login "$target" "$login_log" 300
+  echo "==> Booting the installed disk and logging in as $USERNAME" >&2
+  local report
+  report="$("$E2E_DIR/qemu-run.sh" verify-login "$target" "$vars" "$scenario" \
+    "$login_log" "$USERNAME" "$PASSWORD" 300)"
+  echo "$report" >&2
+  case "$report" in
+    DAWN-E2E-LOGGED-IN*) ;;
+    *) fail "logging in on the installed system printed no report" ;;
+  esac
+  if [ "$scenario" = "secure-boot" ] && [ "$report" != "DAWN-E2E-LOGGED-IN secure_boot=1" ]; then
+    fail "the installed system didn't boot with Secure Boot enforcing"
+  fi
   # Online installs never had it; offline ones must have removed it
   # (installer.toml's [offline_cleanup] remove_packages).
   if grep -q "DAWN-E2E-LIVE-ONLY-UNIT-RAN" "$login_log"; then
     fail "the installed system still runs luminos-live's units"
   fi
 
-  echo "==> $scenario: installed through the GUI and booted to a login prompt" >&2
-  rm -f "$target"
+  echo "==> $scenario: installed through the GUI; $USERNAME logged in on the installed system" >&2
+  rm -f "$target" "$vars"
 }
 
 case "${1:-}" in
   prepare) prepare ;;
-  online|offline|fail-then-offline) run_scenario "$1" ;;
+  online|offline|fail-then-offline|secure-boot) run_scenario "$1" ;;
   *)
-    echo "usage: run-e2e.sh prepare | online | offline | fail-then-offline" >&2
+    echo "usage: run-e2e.sh prepare | online | offline | fail-then-offline | secure-boot" >&2
     exit 2
     ;;
 esac

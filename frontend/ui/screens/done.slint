@@ -5,9 +5,14 @@ import { Theme } from "../theme.slint";
 
 // SPEC.md: "Restart now or keep the live session; after Secure Boot
 // setup, reminds the user to switch Secure Boot on in firmware if it
-// isn't."
+// isn't." And from "Secure Boot via sbctl": "Not in Setup Mode: Dawn
+// installs normally and the Done screen links to the sbctl steps for
+// later."
 export component DoneScreen inherits VerticalLayout {
     in property <bool> secure-boot-enroll;
+    // Whether the firmware already enforces Secure Boot, with keys of its
+    // own; then there's nothing to set up later.
+    in property <bool> firmware-secure-boot;
     in property <string> restart-error;
 
     callback restart();
@@ -24,6 +29,25 @@ export component DoneScreen inherits VerticalLayout {
         text: @tr("Remember to switch Secure Boot on in your firmware if it isn't already.");
         wrap: word-wrap;
         horizontal-alignment: center;
+    }
+
+    if !secure-boot-enroll && !firmware-secure-boot: VerticalLayout {
+        spacing: 4px;
+        Text {
+            text: @tr("Secure Boot isn't set up. You can set it up later with sbctl.");
+            wrap: word-wrap;
+            horizontal-alignment: center;
+            color: #888888;
+        }
+        // Selectable, so it can be copied into a browser.
+        if Theme.secure-boot-url != "": TextInput {
+            text: Theme.secure-boot-url;
+            read-only: true;
+            horizontal-alignment: center;
+            color: #888888;
+            accessible-role: text;
+            accessible-label: @tr("How to set up Secure Boot later");
+        }
     }
 
     if restart-error != "": Text {

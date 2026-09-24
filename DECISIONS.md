@@ -4,6 +4,107 @@ Log of choices made during implementation where SPEC.md didn't spell out the
 answer, or where a concrete detail had to be picked to make code compile.
 Newest first.
 
+## M4
+
+- **The Keyboard screen's preview field types in the live session's own
+  layout.** Asked the user, who chose this over having Dawn switch the
+  live Hyprland session to the picked layout through Hyprland's IPC
+  socket. The field stays a plain text field, as in M2. The trade-off
+  the user took: a password typed on the Account screen goes in with
+  the live session's layout, so on a PC whose keyboard doesn't match
+  it, characters that differ between the layouts can make the password
+  fail at the new system's login.
+
+- **Welcome lists every UTF-8 locale glibc supports, and picking one
+  pre-selects the keyboard as well as the timezone.** Asked the user.
+  SPEC.md's Timezone screen is "guessed from the chosen locale", which
+  a list holding only `en_US.UTF-8` can't do. Dawn's own UI stays
+  English (SPEC.md). A keyboard or timezone the user picked by hand
+  stays when the language changes again.
+
+- **Step 10 signs systemd-boot into the `.signed` copy `bootctl
+  install` prefers.** M1's step 10 signed
+  `/boot/EFI/systemd/systemd-bootx64.efi`, which doesn't exist until
+  step 11's `bootctl install`, so every Secure Boot install would have
+  failed there. `sbctl sign -s -o …/systemd-bootx64.efi.signed
+  …/systemd-bootx64.efi` signs it where its package installs it; `bootctl
+  install` then copies the signed file to both places on the ESP, and
+  `-s` records the pair so sbctl's pacman hook re-signs it after
+  updates, as SPEC.md asks. The UKIs are signed in place, then
+  `enroll-keys --microsoft` runs last.
+
+- **Setup Mode is checked in step 1, not first discovered in step 10.**
+  A plan asking for Secure Boot on firmware that isn't in Setup Mode
+  (a CLI plan, or a firmware setting changed since the GUI probed) now
+  fails before anything touches the disk, and the probe backend's
+  `validate` reports it on the Summary screen.
+
+- **The console keymap comes from systemd's `kbd-model-map`, read from
+  the new system at install time.** M1 wrote `KEYMAP=` with the XKB
+  layout's name, which only works when the two agree (`us`, `de`); now
+  that every XKB layout can be picked, `gb` has to become `uk`,
+  `latam` `la-latin1`, and so on. Dawn scores the table's rows the way
+  systemd-localed does for `localectl set-x11-keymap`, and falls back
+  to `us` when the table has no such layout. The table is parsed in
+  `plan::keymap`, which the GUI shares for its keyboard guesses.
+
+- **The XKB layout is also written to
+  `/etc/X11/xorg.conf.d/00-keyboard.conf`**, in the format
+  `localectl set-x11-keymap` writes, so `localectl status` and a login
+  screen can find it. Hyprland sessions still get theirs from the
+  `keyboard.conf` in `/etc/skel` (M1).
+
+- **The lists come from the live system's own files:** glibc's
+  `SUPPORTED` and locale sources (names like "German (Germany)"),
+  xkeyboard-config's `evdev.lst` (every layout and variant, one entry
+  each, stored as XKB writes them: `de(nodeadkeys)`), and tzdata's
+  `zone.tab` and `iso3166.tab`, plus UTC. The GUI reads them itself;
+  nothing there needs root. A file that can't be read leaves a
+  one-entry list (`en_US.UTF-8`, `us`, `UTC`) rather than stopping the
+  installer.
+
+- **One searchable list component for all three screens.** Rust does
+  the searching, across names, codes and countries, and puts an exact
+  match first, then names starting with the search: typing `us` shows
+  English (US) at the top, not below every Belarusian and Russian
+  layout. Entries sharing a name get their code added, so every entry
+  can be told apart.
+
+- **How the guesses are made.** Keyboard: `kbd-model-map`'s
+  language-tag column, first for language and country (`de-AT`), then
+  language alone, else a layout named after the country, as many are.
+  Timezone: the first zone `zone.tab` lists for the country, except
+  for six where tzdata's geographic order puts an outlying zone first
+  (Australia, Brazil, Canada, Russia, Ukraine, Uzbekistan), which get
+  their most populous zone from a small table in `frontend::data`.
+
+- **The Done screen's link to the sbctl steps comes from
+  `branding.toml`'s new, optional `secure_boot_url`.** SPEC.md's
+  branding lists "website and support URLs", and the right page is
+  distro-specific. It shows only when Secure Boot wasn't set up and
+  the firmware doesn't already enforce it. The URL is selectable text,
+  since Dawn can't open a browser in every live session.
+
+- **The Secure Boot end-to-end check logs in on the installed system.**
+  Arch's kernel prints only errors to the console by default
+  (`CONFIG_CONSOLE_LOGLEVEL_DEFAULT=4`), so its "Secure boot enabled"
+  message never reaches the serial log. `verify-login` now serves the
+  serial console on a socket, logs in as the new user with the
+  password given in the GUI (`tests/e2e/serial-login.py`), and reads
+  the firmware's `SecureBoot` variable, which the secure-boot scenario
+  requires to be 1. Every scenario logs in this way, which also proves
+  step 8's password works. The secure-boot scenario runs OVMF's Secure
+  Boot build with SMM, and the install and the check share one
+  variable store, where sbctl enrolled its keys.
+
+- **The test driver picks list entries by value.** It types the value
+  (`en_US.UTF-8`, `us`, `Europe/Berlin`) into the search field through
+  the field's accessible set-value action, then clicks the entry by
+  whatever the list calls it. A list only makes the rows it shows, and
+  an exact match is shown first. The driver no longer sets these
+  fields' properties directly (M2), and doesn't depend on glibc's
+  names: `en_US` is "American English (United States)".
+
 ## M3
 
 - **Two backend processes: an unprivileged probe backend, and a root
@@ -159,7 +260,8 @@ Newest first.
   socket, touching nothing. `dawn --mock-backend` stays M2's canned
   backend.
 
-- **The e2e test drives Dawn's GUI in one ISO, three scenarios.**
+- **The e2e test drives Dawn's GUI in one ISO, three scenarios** (M4
+  adds a fourth, secure-boot).
   Supersedes M1's plan-file runs, whose CLI path the dry-run snapshots
   and the loop-device job still cover. The stand-in `luminos-dawn` now
   carries `dawn-backend`, `gui_driver`, the polkit files and an
@@ -219,7 +321,9 @@ Newest first.
 - **The UI smoke test drives Next/Back/Install by accessible label
   (`i_slint_backend_testing::ElementHandle`), matching SPEC.md's own
   description, but sets ComboBox-backed fields (locale, keyboard
-  layout, timezone) directly via generated property setters.**
+  layout, timezone) directly via generated property setters.** (From
+  M4 those are searchable lists, which the driver types into and
+  clicks.)
   std-widgets' `ComboBox` only implements `accessible-action-expand`,
   not a set-value action the way `LineEdit`, `Button` and `CheckBox`
   do, so there's no accessibility-level way to simulate "pick this
@@ -249,7 +353,8 @@ Newest first.
   and `build_install_plan` need revisiting together.
 
 - **Keyboard layout and timezone use a `ComboBox` with a small fixed
-  list**, not the full X11 layout list or IANA zone database. SPEC.md
+  list**, not the full X11 layout list or IANA zone database. (Replaced
+  in M4 by searchable lists of the system's own data.) SPEC.md
   asks for a "live preview field" (keyboard) and a "searchable list"
   (timezone) — the preview field exists (plain text echo, no real
   layout remapping yet); the searchable list is deferred, since neither
