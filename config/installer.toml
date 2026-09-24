@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Dawn's behaviour config, installed as /etc/dawn/installer.toml by the
+# luminos-dawn package (SPEC.md "Branding & configuration"). Both the GUI
+# and the backend read it. When that file is missing they fall back to
+# this copy, compiled in.
+
+branding = "luminos"
+adapter = "arch"
+
+[source]
+packages = ["luminos-base", "luminos-desktop"]
+# Offline fallback. install_dir comes from the releng profiledef.sh. When
+# archiso copied the image to RAM, the backend reads
+# /run/archiso/copytoram/ with the same file name instead.
+squashfs = "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs"
+
+[defaults]
+filesystem = "btrfs"
+admin_group = "wheel"
+min_disk_gib = 32
+
+[screens]
+autologin_option = true
+
+[offline_cleanup]
+# Dawn itself is always removed by the adapter. Add "luminos-live" once
+# the ISO installs it: pacman -R fails outright on a package that isn't
+# installed.
+remove_packages = ["mkinitcpio-archiso"]
