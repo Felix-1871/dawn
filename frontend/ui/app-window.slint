@@ -92,6 +92,8 @@ export component AppWindow inherits Window {
     in-out property <float> install-progress;
     in property <[string]> install-log;
     in-out property <bool> show-install-log;
+    // The window was asked to close mid-install.
+    in-out property <bool> confirm-stop;
     in-out property <int> error-step;
     in-out property <string> error-message;
     in-out property <string> error-log;
@@ -259,6 +261,8 @@ export component AppWindow inherits Window {
         progress: root.install-progress;
         log-lines: root.install-log;
         show-log <=> root.show-install-log;
+        confirm-stop <=> root.confirm-stop;
+        stop => { root.quit-requested(); }
     }
 
     if current-screen == 8: DoneScreen {

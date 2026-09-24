@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Button, ProgressIndicator, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
 
 // SPEC.md: "Progress bar, current step, optional branded slideshow,
 // expandable log." Progress and log lines arrive from the backend as
@@ -13,6 +14,11 @@ export component InstallingScreen inherits VerticalLayout {
     in property <float> progress;
     in property <[string]> log-lines;
     in-out property <bool> show-log;
+    // The window was asked to close: stopping the install needs a yes
+    // (DECISIONS.md, M4 follow-ups).
+    in-out property <bool> confirm-stop;
+
+    callback stop();
 
     padding: 32px;
     spacing: 16px;
@@ -57,4 +63,33 @@ export component InstallingScreen inherits VerticalLayout {
     }
 
     if !show-log: Rectangle { vertical-stretch: 1; }
+
+    if confirm-stop: Rectangle {
+        border-radius: 6px;
+        border-width: 2px;
+        border-color: #d9534f;
+        VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+            Text {
+                text: @tr("Stop the install?");
+                font-size: 16px;
+                font-weight: 700;
+            }
+            Text {
+                text: @tr("The disk has already been changed. Stopping now leaves it partly installed, and it won't start until {} is installed on it again.", Theme.product-name);
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: @tr("Stop and quit"); clicked => { root.stop(); } }
+                Button {
+                    text: @tr("Keep installing");
+                    primary: true;
+                    clicked => { root.confirm-stop = false; }
+                }
+            }
+        }
+    }
 }

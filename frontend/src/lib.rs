@@ -133,9 +133,26 @@ pub fn build_ui(
     wire_install(&app, &services, &session, config.source.packages.clone());
     wire_error_screen(&app, &services, &session);
     wire_done_screen(&app);
+    confirm_close_mid_install(&app);
     start_probes(&app, &services, &lists);
 
     Ok(app)
+}
+
+/// Closing the window while an install runs asks first, on the
+/// Installing screen (decided with the user). Stopping quits Dawn, which
+/// the backend takes as cancel: it stops the step and unmounts the target
+/// (DECISIONS.md, M3).
+fn confirm_close_mid_install(app: &AppWindow) {
+    let weak = app.as_weak();
+    app.window()
+        .on_close_requested(move || match weak.upgrade() {
+            Some(app) if app.get_current_screen() == 7 => {
+                app.set_confirm_stop(true);
+                slint::CloseRequestResponse::KeepWindowShown
+            }
+            _ => slint::CloseRequestResponse::HideWindow,
+        });
 }
 
 pub fn apply_branding(app: &AppWindow, branding: branding::Branding) {
@@ -572,6 +589,7 @@ fn start_install(
     if let Some(lines) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
         lines.set_vec(Vec::new());
     }
+    app.set_confirm_stop(false);
     app.set_install_step_number(0);
     app.set_install_step_name(SharedString::new());
     app.set_install_progress(0.0);

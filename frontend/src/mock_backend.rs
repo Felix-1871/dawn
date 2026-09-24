@@ -22,6 +22,7 @@ pub struct MockBackend {
     online: bool,
     setup_mode: bool,
     fail_online_installs: bool,
+    hold_installs: bool,
     installs: Mutex<Vec<InstallPlan>>,
 }
 
@@ -37,8 +38,16 @@ impl MockBackend {
             online: true,
             setup_mode: false,
             fail_online_installs: false,
+            hold_installs: false,
             installs: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Installs start and then never finish, so the Installing screen
+    /// stays up.
+    pub fn holding_installs(mut self) -> Self {
+        self.hold_installs = true;
+        self
     }
 
     /// The firmware reports Setup Mode, so the Disk screen offers to set
@@ -114,7 +123,18 @@ impl Backend for MockBackend {
             installs.push(plan.clone());
         }
         let fail = self.fail_online_installs && plan.source == Source::Pacstrap;
+        let hold = self.hold_installs;
         std::thread::spawn(move || {
+            if hold {
+                on_event(Event::Progress {
+                    step: 1,
+                    name: "Validate plan and re-probe the disk".to_string(),
+                    percent: 0.0,
+                });
+                loop {
+                    std::thread::park();
+                }
+            }
             let steps: &[(u32, &str)] = &[
                 (1, "Validate plan and re-probe the disk"),
                 (5, "Install the base system"),

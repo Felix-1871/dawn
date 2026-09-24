@@ -18,7 +18,9 @@
 
 mod driver;
 
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,7 +30,9 @@ use frontend::mock_backend::{self, MockBackend, MockWifi};
 use frontend::{AppWindow, Services, build_ui};
 use plan::Source;
 use plan::config::InstallerConfig;
+use slint::ComponentHandle as _;
 use slint::Model as _;
+use slint::platform::WindowEvent;
 
 fn fixture() -> serde_json::Value {
     let path = concat!(
@@ -301,6 +305,33 @@ async fn the_keyboard_screen_switches_the_live_session() -> Result<(), String> {
     .await
 }
 
+/// Closing the window mid-install asks first (decided with the user):
+/// the install goes on unless the user confirms stopping it, which quits.
+async fn closing_the_window_mid_install_asks_first() -> Result<(), String> {
+    let backend = Arc::new(MockBackend::new().holding_installs());
+    let app = start(&backend)?;
+    let quits = Rc::new(Cell::new(0));
+    app.on_quit_requested({
+        let quits = quits.clone();
+        move || quits.set(quits.get() + 1)
+    });
+    fill_to_summary(&app, Network::Online, &Answers::fixture(mock_backend::DISK)).await?;
+    click(&app, "Install")?;
+    expect_screen(&app, driver::INSTALLING)?;
+
+    app.window().dispatch_event(WindowEvent::CloseRequested);
+    assert!(app.get_confirm_stop(), "closing asks first");
+    click(&app, "Keep installing")?;
+    assert!(!app.get_confirm_stop());
+    expect_screen(&app, driver::INSTALLING)?;
+    assert_eq!(quits.get(), 0);
+
+    app.window().dispatch_event(WindowEvent::CloseRequested);
+    click(&app, "Stop and quit")?;
+    assert_eq!(quits.get(), 1);
+    Ok(())
+}
+
 async fn an_unavailable_disk_cant_be_picked() -> Result<(), String> {
     let backend = Arc::new(MockBackend::new());
     let app = start(&backend)?;
@@ -323,6 +354,7 @@ fn clickthrough() {
         secure_boot_is_offered_in_setup_mode().await?;
         a_language_preselects_its_keyboard_and_timezone().await?;
         the_keyboard_screen_switches_the_live_session().await?;
+        closing_the_window_mid_install_asks_first().await?;
         an_unavailable_disk_cant_be_picked().await?;
         Ok(())
     })
