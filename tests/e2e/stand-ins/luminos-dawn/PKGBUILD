@@ -1,38 +1,45 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# A stand-in for the real luminos-dawn, for the e2e test ISO only. It
-# carries everything the test adds to the live system: dawn-backend, the
-# plan to install, and a service that runs the install on boot. An
+# A stand-in for the real luminos-dawn, for the e2e test ISO only. Like
+# the real package, it carries dawn-backend, the polkit action and rule,
+# and /etc/dawn/installer.toml. In place of the dawn GUI it carries
+# gui_driver (frontend/examples/gui_driver.rs), which runs the same GUI
+# and clicks through it, and the service that starts it at boot. An
 # offline install's step 6 (`pacman -Rns luminos-dawn ...`) then finds a
-# real package to remove, and takes all of that back out of the installed
-# system, as it will with the real package.
+# real package to remove, and takes all of that back out of the
+# installed system, as it will with the real package.
 #
-# build-stand-in-packages.sh copies dawn-backend and plan.json in next to
-# this file before running makepkg.
+# build-stand-in-packages.sh copies dawn-backend, gui_driver, the polkit
+# files and installer.toml in next to this file before running makepkg.
 
 pkgname=luminos-dawn
 pkgver=0.0.0
 pkgrel=1
-pkgdesc='Dawn e2e test stand-in: dawn-backend and an install-on-boot service'
+pkgdesc='Dawn e2e test stand-in: dawn-backend and a GUI driver that installs on boot'
 arch=('x86_64')
 url='https://github.com/Felix-1871/dawn'
 license=('GPL-3.0-or-later')
+# pkexec, and the shared libraries Slint links.
+depends=('polkit' 'fontconfig')
 options=('!debug' '!strip')
-source=('dawn-backend' 'plan.json' 'dawn-e2e-install@.service')
-sha256sums=('SKIP' 'SKIP' 'SKIP')
+source=('dawn-backend' 'gui_driver' 'dawn-e2e-driver' 'dawn-e2e.service'
+        'installer.toml' 'org.luminos.dawn.policy' '50-luminos-dawn.rules')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm755 dawn-backend "$pkgdir/usr/bin/dawn-backend"
-  install -Dm644 plan.json "$pkgdir/usr/share/dawn-e2e/plan.json"
-  install -Dm644 dawn-e2e-install@.service \
-    "$pkgdir/usr/lib/systemd/system/dawn-e2e-install@.service"
+  install -Dm755 gui_driver "$pkgdir/usr/lib/dawn-e2e/gui_driver"
+  install -Dm755 dawn-e2e-driver "$pkgdir/usr/lib/dawn-e2e/dawn-e2e-driver"
+  install -Dm644 installer.toml "$pkgdir/etc/dawn/installer.toml"
+  install -Dm644 org.luminos.dawn.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.luminos.dawn.policy"
+  install -Dm644 50-luminos-dawn.rules \
+    "$pkgdir/usr/share/polkit-1/rules.d/50-luminos-dawn.rules"
 
   # Enabled statically, from /usr, so removing the package disables it
-  # too. The instance is the plan's own target disk; systemd-escape turns
-  # it into a unit name, and %I in the unit turns it back.
-  local instance
-  instance="$(systemd-escape "$(jq -r '.disk.device' plan.json)")"
+  # too.
+  install -Dm644 dawn-e2e.service "$pkgdir/usr/lib/systemd/system/dawn-e2e.service"
   install -dm755 "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
-  ln -s ../dawn-e2e-install@.service \
-    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/dawn-e2e-install@$instance.service"
+  ln -s ../dawn-e2e.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/dawn-e2e.service"
 }

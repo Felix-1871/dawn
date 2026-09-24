@@ -19,11 +19,12 @@
 #                  nothing else, for pacstrap's -C
 #   packages.json  the stand-in list as a JSON array, for a plan's
 #                  "packages"
-# Serves the repo over HTTP on port 8080 in the background and writes the
-# server's PID to <output-dir>/http-server.pid so the caller can stop it.
-# Run this directly, never inside $(...): a command substitution only
-# returns once every process holding its stdout has exited, and the
-# server is meant to outlive this script.
+# Serves the repo over HTTP on port 8080 in the background, through
+# serve-mirror.sh, and writes the server's PID to
+# <output-dir>/http-server.pid so the caller can stop it. Run this
+# directly, never inside $(...): a command substitution only returns once
+# every process holding its stdout has exited, and the server is meant
+# to outlive this script.
 #
 # server-host is what pacman.conf tells clients to connect to,
 # and it depends on who's connecting: a plain container reaches this
@@ -77,21 +78,4 @@ EOF
 
 jq -n '$ARGS.positional' --args "${PACKAGES[@]}" > "$OUT_DIR/packages.json"
 
-echo "==> Serving $OUT_DIR on :8080" >&2
-# Started directly, with every stream redirected, so the server never
-# holds the caller's stdout or stderr open. Anything waiting for those to
-# close (a $(...) capture, or the `docker exec` behind a CI step) would
-# otherwise block for as long as the server runs.
-python3 -m http.server 8080 --directory "$OUT_DIR" \
-  >"$OUT_DIR/http-server.log" 2>&1 </dev/null &
-echo "$!" > "$OUT_DIR/http-server.pid"
-
-for _ in $(seq 30); do
-  if curl -fs -o /dev/null "http://127.0.0.1:8080/$REPO_NAME.db"; then
-    exit 0
-  fi
-  sleep 1
-done
-echo "error: the local mirror never answered on :8080" >&2
-cat "$OUT_DIR/http-server.log" >&2
-exit 1
+"$(dirname "$0")/serve-mirror.sh" "$OUT_DIR" "$OUT_DIR/http-server.pid"

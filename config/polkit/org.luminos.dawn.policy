@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  The polkit action for Dawn's install backend, installed as
+  /usr/share/polkit-1/actions/org.luminos.dawn.policy. The GUI starts
+  the backend through pkexec by its absolute path, and pkexec picks this
+  action rather than its generic one because the exec.path annotation
+  names that program. Without the rule next to this file, starting it
+  needs an administrator's password.
+-->
+<policyconfig>
+  <vendor>LuminOS</vendor>
+  <action id="org.luminos.dawn.backend">
+    <description>Install an operating system onto a disk</description>
+    <message>Authentication is required to install onto a disk, which erases it</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/dawn-backend</annotate>
+  </action>
+</policyconfig>

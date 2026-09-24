@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Builds the stand-in luminos-dawn and luminos-keyring packages
-# (stand-ins/*/PKGBUILD) into a local pacman repo named dawn-e2e, for
-# build-test-iso.sh to install into the test ISO. Must run as root inside
-# a disposable container, like the rest of tests/e2e: makepkg refuses to
-# run as root, so this creates a throwaway build user to run it as.
+# Builds the stand-in luminos-dawn, luminos-live and luminos-keyring
+# packages (stand-ins/*/PKGBUILD) into a local pacman repo named
+# dawn-e2e, for build-test-iso.sh to install into the test ISO. Must run
+# as root inside a disposable container, like the rest of tests/e2e:
+# makepkg refuses to run as root, so this creates a throwaway build user
+# to run it as.
 #
-# Usage: build-stand-in-packages.sh <dawn-backend> <plan.json> <repo-dir>
+# Usage: build-stand-in-packages.sh <dawn-backend> <gui_driver> <installer.toml> <live-only-dir> <repo-dir>
+#
+# <live-only-dir> holds the live ISO's live-only files, laid out as they
+# install; they become the stand-in luminos-live.
 
 set -euo pipefail
 
-USAGE="usage: build-stand-in-packages.sh <dawn-backend> <plan.json> <repo-dir>"
+USAGE="usage: build-stand-in-packages.sh <dawn-backend> <gui_driver> <installer.toml> <live-only-dir> <repo-dir>"
 BACKEND="${1:?$USAGE}"
-PLAN_FILE="${2:?$USAGE}"
-REPO_DIR="${3:?$USAGE}"
+DRIVER="${2:?$USAGE}"
+CONFIG="${3:?$USAGE}"
+LIVE_ONLY="${4:?$USAGE}"
+REPO_DIR="${5:?$USAGE}"
 STAND_INS="$(dirname "$0")/stand-ins"
+POLKIT="$(dirname "$0")/../../config/polkit"
 BUILD_USER="dawn-e2e-build"
 
 id -u "$BUILD_USER" >/dev/null 2>&1 || useradd --system --no-create-home "$BUILD_USER"
@@ -28,9 +35,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -r "$STAND_INS/luminos-dawn" "$STAND_INS/luminos-keyring" "$BUILD_DIR/"
+cp -r "$STAND_INS/luminos-dawn" "$STAND_INS/luminos-live" "$STAND_INS/luminos-keyring" "$BUILD_DIR/"
 cp "$BACKEND" "$BUILD_DIR/luminos-dawn/dawn-backend"
-cp "$PLAN_FILE" "$BUILD_DIR/luminos-dawn/plan.json"
+cp "$DRIVER" "$BUILD_DIR/luminos-dawn/gui_driver"
+cp "$CONFIG" "$BUILD_DIR/luminos-dawn/installer.toml"
+cp "$POLKIT/org.luminos.dawn.policy" "$POLKIT/50-luminos-dawn.rules" "$BUILD_DIR/luminos-dawn/"
+cp -a "$LIVE_ONLY" "$BUILD_DIR/luminos-live/live-only"
 
 # The keyring's public key file and trust entry are all
 # `pacman-key --populate` needs; the private half is thrown away with
@@ -44,7 +54,7 @@ echo "$FINGERPRINT:4:" > "$BUILD_DIR/luminos-keyring/luminos-trusted"
 
 chown -R "$BUILD_USER" "$BUILD_DIR"
 mkdir -p "$REPO_DIR"
-for pkg in luminos-dawn luminos-keyring; do
+for pkg in luminos-dawn luminos-live luminos-keyring; do
   (cd "$BUILD_DIR/$pkg" && runuser -u "$BUILD_USER" -- makepkg --nodeps --noconfirm)
   cp "$BUILD_DIR/$pkg"/*.pkg.tar.zst "$REPO_DIR/"
 done

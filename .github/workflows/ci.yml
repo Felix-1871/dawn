@@ -67,9 +67,10 @@ jobs:
           tests/e2e/loop-device-install.sh online tests/plans/erase-online.json \
             "$MIRROR_DIR"
 
-  # M1's own Done-when check: "A plan file installs into a QEMU VM disk
-  # both online and offline, and the VM boots to a login prompt." Needs
-  # /dev/kvm and OVMF (CLAUDE.md: check before any VM step) — GitHub's
+  # M3's Done-when check: "Dawn installs a VM end to end from the GUI,
+  # online and offline; a forced failure shows the error screen with
+  # log", each install followed by M1's boot to a login prompt. Needs
+  # /dev/kvm and OVMF (CLAUDE.md: check before any VM step); GitHub's
   # ubuntu-latest runners provide KVM, passed into the container below.
   #
   # mkarchiso is Arch-only tooling (no Ubuntu package), so this runs in
@@ -79,9 +80,9 @@ jobs:
   qemu-end-to-end:
     runs-on: ubuntu-latest
     needs: checks
-    # Two ISO builds plus qemu-run.sh's own install and login timeouts
-    # (35 minutes per mode) fit inside this with room to spare.
-    timeout-minutes: 120
+    # One ISO build plus three installs and boots, each with its own
+    # timeout in qemu-run.sh, fit inside this with room to spare.
+    timeout-minutes: 150
     container:
       image: archlinux:base-devel
       options: --privileged
@@ -90,11 +91,30 @@ jobs:
       - name: Check for /dev/kvm
         run: test -e /dev/kvm || (echo "no /dev/kvm on this runner" >&2; exit 1)
       - name: Install build, archiso and QEMU tooling
+        # fontconfig: the only system library the GUI driver links.
         run: |
-          pacman -Sy --noconfirm rust archiso qemu-system-x86 qemu-img \
-            edk2-ovmf jq arch-install-scripts btrfs-progs dosfstools \
-            util-linux python
-      - name: Install (online) and boot to login
+          pacman -Sy --noconfirm rust fontconfig archiso qemu-system-x86 \
+            qemu-img edk2-ovmf jq arch-install-scripts btrfs-progs \
+            dosfstools util-linux python
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the test ISO (dawn-backend, gui_driver, local mirror, stand-in packages)
+        id: prepare
+        run: tests/e2e/run-e2e.sh prepare
+      # Each scenario runs even if an earlier one failed, so one run shows
+      # every failure.
+      - name: Online install through the GUI, then boot to login
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: tests/e2e/run-e2e.sh online
-      - name: Install (offline) and boot to login
+      - name: Offline install through the GUI, then boot to login
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: tests/e2e/run-e2e.sh offline
+      - name: Forced pacstrap failure, error screen, offline install from RAM, then boot to login
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: tests/e2e/run-e2e.sh fail-then-offline
+      - name: Upload the serial console logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-serial-logs
+          path: /tmp/dawn-e2e/*.log
+          if-no-files-found: ignore
