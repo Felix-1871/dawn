@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Button, CheckBox } from "std-widgets.slint";
+import { Button, CheckBox, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 
 export struct DiskInfo {
@@ -8,17 +8,23 @@ export struct DiskInfo {
     model: string,
     size-gib: int,
     serial: string,
+    // Why this disk can't be installed onto; empty if it can.
+    unavailable: string,
 }
 
 // SPEC.md: "Target disk, Erase or Manual mode, Secure Boot setup |
 // Shows model, size and serial; hides the live USB; Secure Boot
-// checkbox appears only in Setup Mode, checked by default." Manual
+// checkbox appears only in Setup Mode, checked by default." The backend
+// already left out the live USB and mounted disks; disks too small or
+// otherwise unusable are shown greyed out with the reason. Manual
 // mode's partition-assignment table is M7 scope; the toggle exists
 // here but stays disabled until then.
 export component DiskScreen inherits VerticalLayout {
     in property <[DiskInfo]> disks;
     in-out property <string> selected-device;
     in-out property <string> selected-model;
+    in-out property <int> selected-size-gib;
+    in-out property <string> selected-serial;
     in-out property <string> mode: "erase";
     in property <bool> is-setup-mode;
     in-out property <bool> secure-boot-enroll;
@@ -29,50 +35,80 @@ export component DiskScreen inherits VerticalLayout {
     padding: 32px;
     spacing: 16px;
 
-    Text { text: "Disk"; font-size: 22px; font-weight: 700; }
-    Text { text: "Choose the disk to install onto. Erase mode wipes it completely."; wrap: word-wrap; }
+    Text { text: @tr("Disk"); font-size: 22px; font-weight: 700; }
+    Text { text: @tr("Choose the disk to install onto. Erase mode wipes it completely."); wrap: word-wrap; }
 
-    for disk in disks: Rectangle {
-        border-radius: 6px;
-        border-width: 2px;
-        border-color: disk.device == selected-device ? Theme.accent : #cccccc;
-        background: disk.device == selected-device ? Theme.accent.with-alpha(0.08) : transparent;
-        height: 64px;
+    if disks.length == 0: Text {
+        text: @tr("No disk this PC can install onto was found.");
+        color: #d9534f;
+    }
 
-        TouchArea {
-            clicked => {
-                selected-device = disk.device;
-                selected-model = disk.model;
-            }
-        }
-
+    ScrollView {
+        vertical-stretch: 1;
+        min-height: 80px;
         VerticalLayout {
-            padding: 10px;
-            Text { text: "\{disk.model} — \{disk.size-gib} GiB"; font-weight: 600; }
-            Text { text: "Serial \{disk.serial}"; font-size: 12px; }
+            spacing: 8px;
+            for disk in disks: Rectangle {
+                border-radius: 6px;
+                border-width: 2px;
+                border-color: disk.device == selected-device ? Theme.accent : #cccccc;
+                background: disk.device == selected-device ? Theme.accent.with-alpha(0.08) : transparent;
+                opacity: disk.unavailable == "" ? 1.0 : 0.5;
+                height: 64px;
+                accessible-role: list-item;
+                accessible-label: "\{disk.model} \{disk.serial}";
+                accessible-enabled: disk.unavailable == "";
+                accessible-action-default => {
+                    if disk.unavailable == "" {
+                        selected-device = disk.device;
+                        selected-model = disk.model;
+                        selected-size-gib = disk.size-gib;
+                        selected-serial = disk.serial;
+                    }
+                }
+
+                TouchArea {
+                    enabled: disk.unavailable == "";
+                    clicked => {
+                        selected-device = disk.device;
+                        selected-model = disk.model;
+                        selected-size-gib = disk.size-gib;
+                        selected-serial = disk.serial;
+                    }
+                }
+
+                VerticalLayout {
+                    padding: 10px;
+                    Text { text: @tr("{} — {} GiB", disk.model, disk.size-gib); font-weight: 600; }
+                    Text {
+                        text: disk.unavailable == ""
+                            ? @tr("Serial {}", disk.serial)
+                            : @tr("Serial {} — this disk {}", disk.serial, disk.unavailable);
+                        font-size: 12px;
+                    }
+                }
+            }
         }
     }
 
     HorizontalLayout {
         spacing: 16px;
-        Text { text: "Mode:"; vertical-alignment: center; }
-        Button { text: "Erase"; primary: mode == "erase"; clicked => { mode = "erase"; } }
-        Button { text: "Manual (coming soon)"; enabled: false; }
+        Text { text: @tr("Mode:"); vertical-alignment: center; }
+        Button { text: @tr("Erase"); primary: mode == "erase"; clicked => { mode = "erase"; } }
+        Button { text: @tr("Manual (coming soon)"); enabled: false; }
     }
 
     if is-setup-mode: CheckBox {
-        text: "Set up Secure Boot with LuminOS keys";
+        text: @tr("Set up Secure Boot with {} keys", Theme.product-name);
         checked <=> secure-boot-enroll;
     }
 
-    Rectangle { vertical-stretch: 1; }
-
     HorizontalLayout {
         spacing: 12px;
-        Button { text: "Back"; clicked => { back(); } }
+        Button { text: @tr("Back"); clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
         Button {
-            text: "Next";
+            text: @tr("Next");
             primary: true;
             enabled: selected-device != "";
             clicked => { next(); }

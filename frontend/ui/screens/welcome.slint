@@ -5,9 +5,13 @@ import { Theme } from "../theme.slint";
 
 // SPEC.md user flow: "Offers 'Try live session' and 'Install'; blocks
 // Install when not booted in UEFI mode and explains how to switch."
+// Install also waits for the backend's probes (firmware, disks, whether
+// the PC is online), which decide what the next screens show.
 export component WelcomeScreen inherits VerticalLayout {
     in-out property <string> locale;
     in property <bool> is-uefi;
+    in property <bool> probing;
+    in property <string> probe-error;
 
     callback try-live-session();
     callback install();
@@ -38,7 +42,7 @@ export component WelcomeScreen inherits VerticalLayout {
     HorizontalLayout {
         spacing: 12px;
         alignment: center;
-        Text { text: "Language"; vertical-alignment: center; }
+        Text { text: @tr("Language"); vertical-alignment: center; }
         ComboBox {
             model: ["en_US.UTF-8"];
             current-value: locale;
@@ -46,8 +50,21 @@ export component WelcomeScreen inherits VerticalLayout {
         }
     }
 
-    if !is-uefi: Text {
-        text: "This PC did not boot in UEFI mode. Restart and switch the firmware to UEFI to install — the live session still works without it.";
+    if probing: Text {
+        text: @tr("Checking this PC…");
+        horizontal-alignment: center;
+        color: #888888;
+    }
+
+    if probe-error != "": Text {
+        text: @tr("Couldn't check this PC: {}", probe-error);
+        wrap: word-wrap;
+        color: #d9534f;
+        horizontal-alignment: center;
+    }
+
+    if !probing && !is-uefi: Text {
+        text: @tr("This PC did not boot in UEFI mode. Restart and switch the firmware to UEFI to install — the live session still works without it.");
         wrap: word-wrap;
         color: #d9534f;
         horizontal-alignment: center;
@@ -57,13 +74,13 @@ export component WelcomeScreen inherits VerticalLayout {
         spacing: 12px;
         alignment: center;
         Button {
-            text: "Try live session";
+            text: @tr("Try live session");
             clicked => { try-live-session(); }
         }
         Button {
-            text: "Install";
+            text: @tr("Install");
             primary: true;
-            enabled: is-uefi;
+            enabled: !probing && is-uefi && probe-error == "";
             clicked => { install(); }
         }
     }

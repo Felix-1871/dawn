@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Runs one end-to-end scenario through the GUI, then powers off. Part of
+# the stand-in luminos-dawn package (see PKGBUILD). qemu-run.sh passes
+# the scenario as an SMBIOS credential and watches the serial console for
+# the markers gui_driver prints.
+
+[Unit]
+Description=Dawn e2e test: install through the GUI
+# Only from the live medium, never on a system this installed, and only
+# when the test harness named a scenario.
+ConditionKernelCommandLine=archisobasedir
+ConditionCredential=dawn.scenario
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# As the live user, the way the real GUI runs: the install backend
+# starts through pkexec and the polkit rule, not as this service's root.
+User=luminos
+ImportCredential=dawn.scenario
+ExecStart=/usr/lib/dawn-e2e/dawn-e2e-driver
+# Whatever happened. "+": as root, since the live user can't power off
+# while root's live session is also logged in.
+ExecStopPost=+/usr/bin/systemctl poweroff --no-block
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/ttyS0

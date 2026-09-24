@@ -4,6 +4,197 @@ Log of choices made during implementation where SPEC.md didn't spell out the
 answer, or where a concrete detail had to be picked to make code compile.
 Newest first.
 
+## M3
+
+- **Two backend processes: an unprivileged probe backend, and a root
+  install backend started through pkexec with `--target`.** Asked the
+  user. The GUI needs the backend before a disk is chosen (to list
+  disks), but SPEC.md and CLAUDE.md say the backend only installs when
+  `--target` on its command line matches the plan's disk. At startup
+  the GUI runs `dawn-backend --serve` as the live user for the
+  read-only requests (`list_disks`, `probe_firmware`, `check_online`,
+  `validate`); without `--target` it refuses `install`. After the
+  Summary screen's confirm, the GUI starts
+  `pkexec dawn-backend --serve --target <disk>`, which does the
+  install. The `--target` rule stays exactly as written, and root is
+  only used for the install. This departs from SPEC.md's architecture
+  diagram, which shows one backend running as root via pkexec.
+
+- **The in-VM end-to-end test drives the real GUI through Slint's
+  testing backend.** Asked the user. A driver in the test ISO builds the
+  same `AppWindow` the `dawn` binary runs, with the real socket client,
+  pkexec and backend, and clicks through the screens by accessible
+  label, as M2's test does. Only pixel rendering is simulated, so the VM
+  needs no compositor.
+
+- **If the GUI goes away mid-install, the root backend stops.** Asked
+  the user. A closed socket (crash, closed window, lost connection) is
+  treated like `cancel`: the running step's processes are killed, the
+  target is unmounted, and the backend exits. The disk is left partly
+  installed, as with any failure, but root work never continues
+  unsupervised.
+
+- **"Retry from start" re-runs the install from step 1 with the same
+  plan.** Asked the user. There's no resume, so "from start" means from
+  partitioning, not back to the Welcome screen.
+
+- **The polkit rule matches the live user alone, not their session.**
+  `config/polkit/50-luminos-dawn.rules` returns YES for
+  `org.luminos.dawn.backend` when `subject.user == "luminos"`, as
+  SPEC.md words it; everyone else gets the action's defaults
+  (`auth_admin_keep` for an active session). A first draft also required
+  an active local session, but a GUI started outside a logind session,
+  as the e2e driver's service is, would then be refused, and live-ISO
+  installer rules conventionally match on the live user alone. The
+  action's `exec.path` annotation is `/usr/bin/dawn-backend`, so pkexec
+  picks it for that path only.
+
+- **`plan` holds the socket protocol and `installer.toml`'s types**
+  (`plan::protocol`, `plan::config`), still with no I/O, since both
+  binaries speak and read them. When `/etc/dawn/installer.toml` is
+  missing, both fall back to a compiled-in copy of
+  `config/installer.toml`, which keeps the dry-run command working on a
+  development machine. The GUI also takes `DAWN_CONFIG`, and passes that
+  file on to backends that run as the user; the root backend always
+  reads the system's own.
+
+- **The runner streams.** Each command runs in its own process group,
+  its output goes line by line to the log and the GUI, and cancelling
+  sends the group SIGTERM, then SIGKILL after 5 seconds. Progress is
+  parsed from pacman's `Packages (N)` and `installing` lines and from
+  `unsquashfs -percentage`, weighted per step (step 5, the base system,
+  is about two thirds of the bar). The log, with redaction, stays in the
+  runner module, so
+  CLAUDE.md's one place for dry-run, logging and redaction still holds.
+
+- **Online means the repositories answer, checked the same way
+  everywhere.** Step 1 of an online install, the GUI's startup probe and
+  the re-check after joining Wi-Fi all send HEAD requests (curl,
+  10-second timeout) for the repository databases in the live system's
+  `pacman.conf`: every repository has to answer from at least one of its
+  servers. After joining Wi-Fi the install goes online only if they
+  answer; the network is set up on the installed system either
+  way. A failed pacstrap whose output shows network trouble ("failed
+  retrieving file", "could not resolve host", and so on) sets
+  `offline_fallback`, and the error screen then offers "Install offline
+  instead": the same plan again from step 1, from the live image.
+
+- **greetd's autologin now edits only `[initial_session]`.** It sets
+  `command = "Hyprland"` and the new user in `/etc/greetd/config.toml`
+  through `toml_edit`, keeping `luminos-desktop`'s `[default_session]`
+  and everything else. This replaces M1's rewrite of the whole file,
+  which wrote `command = "regreet"`. The file has to exist; greetd's
+  package ships one (see `LUMINOS-CHANGES.md`).
+
+- **Step 7 writes `/etc/locale.conf` (`LANG`) and links
+  `/etc/localtime`** to `/usr/share/zoneinfo/<timezone>`. The link is
+  refused if its target doesn't exist inside the new system, so a bad
+  timezone fails step 7 instead of leaving a dangling link.
+
+- **Copy-to-RAM, as planned in M1.** The offline image is
+  `/run/archiso/copytoram/<name>` when that exists, else the configured
+  path. The kernel is copied from the image's
+  `/usr/lib/modules/<version>/vmlinuz`, picking the directory whose
+  `pkgbase` file says `linux`. The boot medium comes from archiso's
+  `archisosearchuuid=`, `archisodevice=` or `archisolabel=`, resolved
+  through sysfs to its whole disk. The backend refuses it as a target
+  and never offers it. It also refuses a partition as `--target`: the
+  plan always names a whole disk.
+
+- **The probe backend's disk list.** `lsblk --list` with `PKNAME`, so a
+  disk with any mounted partition counts as mounted. Hidden: mounted
+  disks, the running system's disk, the boot medium, zram and anything
+  that isn't a disk. Shown greyed out, with the reason: disks without a
+  `/dev/disk/by-id/` name, read-only disks and disks smaller than
+  `min_disk_gib`. Of several by-id names, a recognisable one wins over
+  `wwn-` and `nvme-eui.`, then the shortest.
+
+- **The Summary screen validates before installing.** Install asks the
+  probe backend to `validate` the plan: its rules, plus whether the disk
+  is still one it offers. Problems show on the Summary screen and the
+  install doesn't start.
+
+- **Messages that come from the backend stay English.** Step names,
+  error messages, validation errors and a disk's unavailable reason
+  arrive as text over the socket; every string the UI itself shows goes
+  through `@tr`. v1 is English only (SPEC.md's non-goals); translating
+  the backend's messages would need codes in the protocol, a v2 change.
+  The Timezone screen's "UTC" became "Etc/UTC", which the plan's
+  Region/City rule accepts, and every M2 string that missed `@tr` got
+  it.
+
+- **The error screen.** "The install couldn't start" when there's no
+  step (pkexec refused, or the backend went away), otherwise the step
+  and the backend's message, a note from step 2 on that the disk was
+  already changed, and the backend's last 50 log lines, redacted. Save
+  log writes the whole session's log to `~/dawn-install.log`, in the
+  live user's home; the backend's own full log is `/var/log/dawn.log`,
+  which step 12 copies into the installed system. A backend that went
+  away is started afresh for the next install, so Retry works after
+  pkexec was refused.
+
+- **The Installing screen's log is a plain `ScrollView` holding the last
+  500 lines.** It follows new lines until scrolled up; a `ListView`'s
+  row estimates kept its scroll position a few pixels short of the last
+  line. The error screen's log opens at its end, where the failure is.
+
+- **Restart goes through logind's `Reboot`** over D-Bus, which an
+  active session's user may call without a password; an error shows on
+  the Done screen.
+
+- **Wi-Fi through NetworkManager, on the GUI's side.** Scan is
+  `RequestScan`, 3 seconds, then the access points, one entry per name,
+  strongest first. Join is `AddAndActivateConnection` with the access
+  point, so NetworkManager picks the key management (WPA2 or WPA3), as
+  `nmcli device wifi connect` does. The password goes into the
+  system-wide profile (`psk-flags` 0), so step 7's copy of the profile
+  works on the installed system, and the plan's `network_profile` is
+  that profile's keyfile name, which can differ from the network's.
+  A join that fails deletes its profile. Scanning was tried against this
+  machine's NetworkManager; joining wasn't, since it would have saved a
+  real connection.
+
+- **`dawn --dry-run` runs the real backend without pkexec**, with
+  installs as `dawn-backend --dry-run`: the whole GUI over the real
+  socket, touching nothing. `dawn --mock-backend` stays M2's canned
+  backend.
+
+- **The e2e test drives Dawn's GUI in one ISO, three scenarios.**
+  Supersedes M1's plan-file runs, whose CLI path the dry-run snapshots
+  and the loop-device job still cover. The stand-in `luminos-dawn` now
+  carries `dawn-backend`, `gui_driver`, the polkit files and an
+  `installer.toml` naming the stand-in packages, and a service that runs
+  the driver as `luminos` for the scenario `qemu-run.sh` passes as an
+  SMBIOS credential:
+  - online: the mirror serves everything; the Network screen mustn't
+    show.
+  - offline: nothing serves the mirror, so the repositories are
+    unreachable and the Network screen shows (there's no Wi-Fi adapter);
+    the driver skips it. The VM keeps its network card: without one,
+    systemd-networkd-wait-online would hold boot for 2 minutes.
+  - fail-then-offline: the mirror serves only its databases, so step 1
+    passes and pacstrap fails in step 5; the driver checks the error
+    screen (step 5, the offline option, pacstrap's error in the log),
+    then installs offline. The ISO is a USB stick with 4.5 GiB of RAM,
+    so archiso's default `copytoram=auto` copies the image and unmounts
+    the stick, and the driver checks it did. The plan said to boot with
+    `copytoram=y`; this gets the same copy through the default the real
+    ISO ships, without editing the ISO's boot entries.
+
+  In every scenario the Disk screen must offer the target and nothing
+  else, the install boots to a login prompt, and the password must
+  never reach the serial console. The driver unticks Secure Boot, which
+  the GUI offers checked because fresh OVMF variables are in Setup
+  Mode; Secure Boot is M4's. It echoes the install log to the console,
+  and CI uploads the serial logs.
+
+- **A stand-in `luminos-live` proves the offline cleanup.** The test
+  ISO's build moves releng's `pacman-init.service`,
+  `etc-pacman.d-gnupg.mount`, volatile journal and do-not-suspend
+  config into it, next to a unit that prints a marker on every boot. The
+  marker must show on the live system and must not show when the
+  installed system boots.
+
 ## M2
 
 - **The app_id Slint's winit backend sets is empty, so `build_ui()`
@@ -67,12 +258,13 @@ Newest first.
   (`us`/`""`, `Europe/Berlin`).
 
 - **Network screen mocks Wi-Fi with a plain name/password `LineEdit`
-  pair**, not a real scan-and-join flow. SPEC.md's own milestone table
+  pair**, not a real scan-and-join flow. (Replaced in M3.) SPEC.md's own milestone table
   puts "NetworkManager Wi-Fi screen" under M3, alongside the socket
   protocol and pkexec — the D-Bus wiring belongs there, not M2.
 
 - **Installing and Done screens are static placeholders** (a progress
   bar pinned at 0 and a fixed message, an unconditional "all done").
+  (Replaced in M3.)
   Real progress/log/error events arrive over the socket in M3
   (SPEC.md's wire protocol); M2's Done-when only asks that all nine
   screens exist and clicking through builds a valid plan, which happens
@@ -196,7 +388,7 @@ Newest first.
   `source` line — flagging as an open item below.
 
 - **greetd's autologin override replaces the whole `config.toml`, not a
-  drop-in.** greetd has no drop-in directory (unlike systemd units), so
+  drop-in.** (Superseded in M3: only `[initial_session]` is edited.) greetd has no drop-in directory (unlike systemd units), so
   when the plan asks for autologin, Dawn writes a complete
   `config.toml` with both `default_session` (regreet, for later logins)
   and `initial_session` (the plan's user, autologin). Non-autologin
@@ -246,7 +438,8 @@ Newest first.
   and fails outright.
 
 - **The test ISO installs stand-in `luminos-dawn` and `luminos-keyring`
-  packages** (`tests/e2e/stand-ins/`, built by
+  packages** (M3 adds `luminos-live`, and `luminos-dawn` carries the GUI
+  driver instead of a plan) (`tests/e2e/stand-ins/`, built by
   `tests/e2e/build-stand-in-packages.sh` into a local `file://` repo
   that mkarchiso installs from). This was first deferred as an accepted
   gap, until CI confirmed it was the only thing failing the offline
@@ -287,7 +480,8 @@ Newest first.
   `networkmanager`, `greetd` and `zram-generator`, so step 12 would
   fail. The e2e scripts swap this list into each online
   plan's `packages`, since the plans themselves name the real
-  meta-packages. It downloads the full dependency closure once from the
+  meta-packages (from M3, the test ISO's `installer.toml` names it
+  instead). It downloads the full dependency closure once from the
   real Arch mirror, resolved against an empty package database so
   nothing is skipped for already being installed on the CI host. Every
   install in the tests then gets a complete `pacman.conf` listing only
@@ -325,13 +519,13 @@ Newest first.
   every push, so each milestone's PR shows it. Agreed with the user.
 
 - **Known gap, to be fixed in M3: step 7 sets neither the timezone nor
-  `LANG`.** SPEC.md's step 7 includes the timezone, and the step's name
+  `LANG`.** (Fixed in M3.) SPEC.md's step 7 includes the timezone, and the step's name
   says so, but no action writes `/etc/localtime` or `/etc/locale.conf`,
   and the plan's `timezone` field is unused. Found after M1 merged; the
   user chose to fix it in M3 rather than reopen M1 during M2.
 
 - **Offline installs remove the ISO's live-only parts as one package,
-  `luminos-live`.** Decided with the user; Dawn's side lands in M3. The
+  `luminos-live`.** Decided with the user; Dawn's side landed in M3. The
   LuminOS ISO is Arch's releng profile underneath, and an offline
   install copies the whole live image. Besides what step 6 already
   removes, the installed system would keep, enabled from `/etc`: the
@@ -352,7 +546,7 @@ Newest first.
   changes. The LuminOS side is in `LUMINOS-CHANGES.md`.
 
 - **Dawn copes with archiso's copy-to-RAM itself.** Decided with the
-  user; lands in M3. archiso's default (`copytoram=auto`) copies the
+  user; landed in M3. archiso's default (`copytoram=auto`) copies the
   image into RAM and unmounts the boot medium when it isn't an optical
   drive and there's at least 2 GiB of RAM to spare beyond the image,
   which covers most USB boots, and the LuminOS boot entries don't
@@ -371,7 +565,8 @@ Newest first.
 ## Planned for M3
 
 Work the user scheduled for M3, on top of SPEC.md's own M3 scope. The
-M1 entries above have the reasoning.
+M1 entries above have the reasoning. All of it landed in M3; the M3
+entries say how.
 
 - **Offline cleanup removes `luminos-live`**, through `installer.toml`'s
   `[offline_cleanup] remove_packages`. The e2e test ISO needs a

@@ -23,8 +23,8 @@ mount -o subvol=@home,compress=zstd /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part2 /m
 mkdir -p /mnt/target/boot
 mount /dev/disk/by-id/nvme-EXAMPLE_SERIAL-part1 /mnt/target/boot
 ==> Step 5: Install the base system
-unsquashfs -f -d /mnt/target /run/archiso/bootmnt/arch/x86_64/airootfs.sfs
-copy /run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux to /mnt/target/boot/vmlinuz-linux (if missing)
+unsquashfs -percentage -f -d /mnt/target /run/archiso/bootmnt/arch/x86_64/airootfs.sfs
+copy the linux kernel from /mnt/target/usr/lib/modules/*/vmlinuz to /mnt/target/boot/vmlinuz-linux (if missing)
 ==> Step 6: Remove live-only packages and files
 arch-chroot /mnt/target pacman -Rns --noconfirm luminos-dawn mkinitcpio-archiso
 arch-chroot /mnt/target userdel -r luminos
@@ -36,8 +36,11 @@ arch-chroot /mnt/target pacman-key --populate archlinux luminos
 genfstab -U /mnt/target  # stdout appended to /mnt/target/etc/fstab
 uncomment "en_US.UTF-8 UTF-8" in /mnt/target/etc/locale.gen
 arch-chroot /mnt/target locale-gen
+write /mnt/target/etc/locale.conf
+    <<< LANG=en_US.UTF-8
 write /mnt/target/etc/vconsole.conf
     <<< KEYMAP=us
+symlink /mnt/target/etc/localtime -> /usr/share/zoneinfo/Europe/Berlin
 write /mnt/target/etc/hostname
     <<< ada-laptop
 write /mnt/target/etc/systemd/zram-generator.conf

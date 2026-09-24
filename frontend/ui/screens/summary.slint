@@ -4,21 +4,27 @@ import { Button } from "std-widgets.slint";
 
 // SPEC.md: "Lists every change, says online or offline install, names
 // the disk to be wiped, needs an explicit confirm." Nothing touches a
-// disk before this screen's confirm.
+// disk before this screen's confirm, and the disk is named by model,
+// size and serial, not just a device path (SPEC.md "Disk safety").
 export component SummaryScreen inherits VerticalLayout {
     in property <string> locale;
     in property <string> kb-layout;
     in property <string> kb-variant;
     in property <string> timezone;
     in property <string> disk-model;
+    in property <int> disk-size-gib;
+    in property <string> disk-serial;
     in property <string> disk-device;
     in property <bool> is-offline;
-    in property <string> network-name;
+    in property <string> network-profile;
     in property <string> full-name;
     in property <string> username;
     in property <string> hostname;
     in property <bool> autologin;
     in property <bool> secure-boot-enroll;
+    // What the backend's `validate` found wrong with the plan, if
+    // anything; the install doesn't start until it's fixed.
+    in property <string> problems;
 
     callback back();
     callback confirm();
@@ -26,27 +32,48 @@ export component SummaryScreen inherits VerticalLayout {
     padding: 32px;
     spacing: 10px;
 
-    Text { text: "Summary"; font-size: 22px; font-weight: 700; }
-    Text { text: "Nothing is changed until you confirm."; wrap: word-wrap; }
+    Text { text: @tr("Summary"); font-size: 22px; font-weight: 700; }
+    Text { text: @tr("Nothing is changed until you confirm."); wrap: word-wrap; }
 
-    Text { text: "Language: \{locale}"; }
-    Text { text: "Keyboard: \{kb-layout} \{kb-variant}"; }
-    Text { text: "Timezone: \{timezone}"; }
+    Text { text: @tr("Language: {}", locale); }
+    Text { text: @tr("Keyboard: {} {}", kb-layout, kb-variant); }
+    Text { text: @tr("Timezone: {}", timezone); }
     Text {
         text: is-offline
-            ? "Install: offline, from the live image (network: \{network-name})"
-            : "Install: online, from the package repositories";
+            ? @tr("Install: offline, from this live image")
+            : @tr("Install: online, from the package repositories");
     }
-    Text { text: "Disk: \{disk-model} (\{disk-device}) will be erased"; wrap: word-wrap; }
-    Text { text: "Secure Boot: \{secure-boot-enroll ? "will be set up" : "not set up now"}"; }
-    Text { text: "User: \{full-name} (\{username}) on \{hostname}, autologin \{autologin ? "on" : "off"}"; wrap: word-wrap; }
+    if network-profile != "": Text { text: @tr("Wi-Fi: {} is set up on the new system too", network-profile); }
+    Text {
+        text: @tr("Disk: {} ({} GiB, serial {}) will be erased completely", disk-model, disk-size-gib, disk-serial);
+        wrap: word-wrap;
+        font-weight: 700;
+    }
+    Text { text: disk-device; font-size: 12px; color: #888888; }
+    Text {
+        text: secure-boot-enroll
+            ? @tr("Secure Boot: will be set up")
+            : @tr("Secure Boot: not set up now");
+    }
+    Text {
+        text: autologin
+            ? @tr("User: {} ({}) on {}, logs in automatically", full-name, username, hostname)
+            : @tr("User: {} ({}) on {}", full-name, username, hostname);
+        wrap: word-wrap;
+    }
 
     Rectangle { vertical-stretch: 1; }
 
+    if problems != "": Text {
+        text: @tr("This can't be installed yet:\n{}", problems);
+        wrap: word-wrap;
+        color: #d9534f;
+    }
+
     HorizontalLayout {
         spacing: 12px;
-        Button { text: "Back"; clicked => { back(); } }
+        Button { text: @tr("Back"); clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
-        Button { text: "Install"; primary: true; clicked => { confirm(); } }
+        Button { text: @tr("Install"); primary: true; clicked => { confirm(); } }
     }
 }

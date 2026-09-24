@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Part of the stand-in luminos-live package: a live-only unit, so the e2e
+# test can tell whether the package survived an install. It runs on the
+# live system (qemu-run.sh expects the marker there, which shows the
+# package really was installed) and must not run on the installed one
+# (qemu-run.sh fails the boot if the marker shows up before login).
+
+[Unit]
+Description=Dawn e2e test: a live-only unit
+Before=getty-pre.target
+Wants=getty-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/echo DAWN-E2E-LIVE-ONLY-UNIT-RAN
+StandardOutput=tty
+TTYPath=/dev/ttyS0

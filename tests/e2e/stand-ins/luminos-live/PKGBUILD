@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# A stand-in for luminos-live (LUMINOS-CHANGES.md), for the e2e test ISO
+# only: the live-only parts, packaged so an offline install's step 6
+# removes them through installer.toml's [offline_cleanup]
+# remove_packages. build-test-iso.sh moves releng's live-only files out
+# of the profile's airootfs and into live-only/ next to this file, laid
+# out as they install (makepkg takes no directories as sources, so
+# package() copies it from $startdir). dawn-e2e-live-only.service is the
+# test's own: it prints a marker on every boot, and qemu-run.sh fails
+# the installed system's boot if the marker shows up there.
+
+pkgname=luminos-live
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="Dawn e2e test stand-in: the live ISO's live-only parts"
+arch=('any')
+url='https://github.com/Felix-1871/dawn'
+license=('GPL-3.0-or-later')
+source=('dawn-e2e-live-only.service')
+sha256sums=('SKIP')
+
+package() {
+  # Symlinks as symlinks, and owned by root: fakeroot would record the
+  # build user as the owner of anything copied with its ownership.
+  cp -dR --preserve=mode,timestamps "$startdir/live-only/." "$pkgdir/"
+  install -Dm644 dawn-e2e-live-only.service \
+    "$pkgdir/usr/lib/systemd/system/dawn-e2e-live-only.service"
+  install -dm755 "$pkgdir/usr/lib/systemd/system/multi-user.target.wants"
+  ln -s ../dawn-e2e-live-only.service \
+    "$pkgdir/usr/lib/systemd/system/multi-user.target.wants/dawn-e2e-live-only.service"
+}

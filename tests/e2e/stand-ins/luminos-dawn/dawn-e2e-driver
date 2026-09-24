@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Runs gui_driver for the scenario qemu-run.sh named (dawn-e2e.service
+# imports it as a credential), against the test VM's target disk: a
+# virtio drive with serial=dawn-target.
+
+scenario="$(cat "$CREDENTIALS_DIRECTORY/dawn.scenario")" || exit 1
+echo "DAWN-E2E-SCENARIO: $scenario"
+exec /usr/lib/dawn-e2e/gui_driver "$scenario" /dev/disk/by-id/virtio-dawn-target

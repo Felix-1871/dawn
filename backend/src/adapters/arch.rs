@@ -1,27 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The `arch` adapter: LuminOS's distro-specific pipeline steps. See
-//! SPEC.md "LuminOS adapter".
+//! SPEC.md "LuminOS adapter". What it needs from `installer.toml` (the
+//! offline image, what offline cleanup removes, the admin group) and from
+//! the live system (whether archiso copied the image to RAM) is fixed
+//! when it's built, so building the command list stays a pure function
+//! of the plan.
 
+use plan::config::InstallerConfig;
 use plan::{InstallPlan, Source};
 
 use super::{Adapter, DiskLayout};
-use crate::runner::{Action, Invocation};
-
-/// Where the archiso medium keeps its kernel when it isn't in the
-/// squashfs image itself (SPEC.md: "copy `vmlinuz-linux` from the medium
-/// if the image has no kernel in `/boot`").
-const MEDIUM_KERNEL: &str = "/run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux";
-
-/// Path to the archiso squashfs image, from `installer.toml`'s
-/// `[source] squashfs` key (SPEC.md "Branding & configuration"). Config
-/// file loading isn't wired up until later, so M0 hardcodes the example
-/// value from the spec.
-const SQUASHFS_IMAGE: &str = "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs";
+use crate::live::LiveSystem;
+use crate::pipeline::PACMAN_CONF;
+use crate::runner::{Action, Invocation, ProgressFormat};
 
 /// The LuminOS live ISO's own user account, removed during offline
 /// cleanup. Confirmed against the real ISO — see DECISIONS.md.
 const LIVE_USER: &str = "luminos";
+
+/// Dawn's own package, which an offline install always removes (SPEC.md
+/// `installer.toml` example: "Dawn itself is always removed by the
+/// adapter").
+const DAWN_PACKAGE: &str = "luminos-dawn";
 
 /// `luminos-desktop`'s login manager: greetd, with regreet (hosted under
 /// Hyprland rather than a separate compositor like cage) as the default
@@ -30,10 +31,14 @@ const LIVE_USER: &str = "luminos";
 /// that can carry LuminOS branding, and since Hyprland is already a
 /// luminos-desktop dependency, hosting regreet under it adds no extra
 /// compositor package. The greeter itself is luminos-desktop's default
-/// greetd config, not Dawn's; Dawn only enables the service and
-/// overrides the config when the plan asks for autologin. See
-/// DECISIONS.md.
+/// greetd config, not Dawn's; Dawn only enables the service and adds an
+/// `[initial_session]` when the plan asks for autologin. See DECISIONS.md.
 const LOGIN_MANAGER: &str = "greetd";
+
+/// What greetd starts for an autologin: the desktop session itself. If
+/// luminos-desktop starts Hyprland some other way (a wrapper, uwsm),
+/// this has to follow — see LUMINOS-CHANGES.md.
+const SESSION_COMMAND: &str = "Hyprland";
 
 /// mkinitcpio preset naming the two UKIs systemd-boot will list
 /// automatically from `/boot/EFI/Linux/` (SPEC.md "Disk & bootloader":
@@ -59,9 +64,21 @@ fn mkinitcpio_preset() -> String {
         .to_string()
 }
 
-pub struct ArchAdapter;
+pub struct ArchAdapter {
+    squashfs_image: String,
+    remove_packages: Vec<String>,
+    admin_group: String,
+}
 
 impl ArchAdapter {
+    pub fn new(config: &InstallerConfig, live: &LiveSystem) -> Self {
+        Self {
+            squashfs_image: live.squashfs_image.clone(),
+            remove_packages: config.offline_cleanup.remove_packages.clone(),
+            admin_group: config.defaults.admin_group.clone(),
+        }
+    }
+
     fn chroot(
         layout: &DiskLayout,
         args: impl IntoIterator<Item = impl Into<String>>,
@@ -83,12 +100,14 @@ impl Adapter for ArchAdapter {
                 let mut args = vec![
                     "-K".to_string(),
                     "-C".to_string(),
-                    "/etc/pacman.conf".to_string(),
+                    PACMAN_CONF.to_string(),
                     layout.target.clone(),
                 ];
                 args.extend(plan.packages.iter().cloned());
                 vec![
-                    Action::Run(Invocation::new("pacstrap", args)),
+                    Action::Run(
+                        Invocation::new("pacstrap", args).with_progress(ProgressFormat::Pacman),
+                    ),
                     // -K's `pacman-key --init` runs outside pacstrap's PID
                     // namespace, so the gpg-agent and keyboxd it starts
                     // for the target's keyring outlive pacstrap and keep
@@ -106,12 +125,25 @@ impl Adapter for ArchAdapter {
                 ]
             }
             Source::Squashfs => vec![
-                Action::Run(Invocation::new(
-                    "unsquashfs",
-                    ["-f", "-d", layout.target.as_str(), SQUASHFS_IMAGE],
-                )),
-                Action::CopyIfMissing {
-                    source: MEDIUM_KERNEL.to_string(),
+                Action::Run(
+                    Invocation::new(
+                        "unsquashfs",
+                        [
+                            "-percentage",
+                            "-f",
+                            "-d",
+                            layout.target.as_str(),
+                            self.squashfs_image.as_str(),
+                        ],
+                    )
+                    .with_progress(ProgressFormat::Percentage),
+                ),
+                // archiso moves the kernel out of the image's /boot onto
+                // the medium, which copytoram leaves unmounted. The image
+                // still has the kernel its linux package installed.
+                Action::InstallKernelFromModules {
+                    root: layout.target.clone(),
+                    pkgbase: "linux".to_string(),
                     destination: format!("{}/boot/vmlinuz-linux", layout.target),
                 },
             ],
@@ -119,17 +151,15 @@ impl Adapter for ArchAdapter {
     }
 
     fn offline_cleanup(&self, _plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
+        let mut remove = vec![
+            "pacman".to_string(),
+            "-Rns".to_string(),
+            "--noconfirm".to_string(),
+            DAWN_PACKAGE.to_string(),
+        ];
+        remove.extend(self.remove_packages.iter().cloned());
         vec![
-            Action::Run(Self::chroot(
-                layout,
-                [
-                    "pacman",
-                    "-Rns",
-                    "--noconfirm",
-                    "luminos-dawn",
-                    "mkinitcpio-archiso",
-                ],
-            )),
+            Action::Run(Self::chroot(layout, remove)),
             Action::Run(Self::chroot(layout, ["userdel", "-r", LIVE_USER])),
             Action::RemoveFile {
                 path: format!(
@@ -164,8 +194,8 @@ impl Adapter for ArchAdapter {
         }]
     }
 
-    fn admin_group(&self) -> &'static str {
-        "wheel"
+    fn admin_group(&self) -> &str {
+        &self.admin_group
     }
 
     fn build_ukis(&self, _plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
@@ -211,20 +241,18 @@ impl Adapter for ArchAdapter {
             Action::Run(Self::chroot(layout, ["systemctl", "enable", LOGIN_MANAGER])),
         ];
         if plan.user.autologin {
-            // greetd has no drop-in directory, so autologin means owning
-            // the whole file: `initial_session` runs once on the first VT
-            // without going through the greeter, while `default_session`
-            // (regreet, luminos-desktop's normal default) still handles
-            // any later login. Only written when autologin is chosen;
-            // otherwise luminos-desktop's own config.toml is left alone.
-            actions.push(Action::WriteFile {
+            // greetd's `initial_session` runs once, on the first start
+            // after boot, without going through the greeter. It's added
+            // to luminos-desktop's own config.toml, whose
+            // `default_session` (the greeter) handles every later login;
+            // greetd has no drop-in directory to put it in instead.
+            actions.push(Action::SetTomlTable {
                 path: format!("{}/etc/greetd/config.toml", layout.target),
-                content: format!(
-                    "[terminal]\nvt = 1\n\n\
-                     [default_session]\ncommand = \"regreet\"\nuser = \"greeter\"\n\n\
-                     [initial_session]\ncommand = \"Hyprland\"\nuser = \"{}\"\n",
-                    plan.user.username
-                ),
+                table: "initial_session".to_string(),
+                entries: vec![
+                    ("command".to_string(), SESSION_COMMAND.to_string()),
+                    ("user".to_string(), plan.user.username.clone()),
+                ],
             });
         }
         actions

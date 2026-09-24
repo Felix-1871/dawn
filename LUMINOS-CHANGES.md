@@ -39,11 +39,15 @@ The meta-packages both the ISO and online installs are built from
   - greetd needs a stable command for its `[default_session]`. regreet
     has to run inside a compositor (Hyprland, per DECISIONS.md), so the
     command is something like a `luminos-greeter` wrapper that starts
-    Hyprland with a greeter config running regreet. Dawn's autologin
-    option rewrites `/etc/greetd/config.toml` and currently writes
-    `command = "regreet"`, which can't work on its own. Dawn fixes that
-    in its M3, either by keeping `luminos-desktop`'s own
-    `[default_session]` or by using this wrapper.
+    Hyprland with a greeter config running regreet. That section is
+    `luminos-desktop`'s to write; Dawn leaves it alone.
+  - Dawn's autologin option adds an `[initial_session]` to
+    `/etc/greetd/config.toml` on the installed system, with the new user
+    and `command = "Hyprland"`, and keeps everything else in the file.
+    So that file has to exist there (greetd's own package ships one) and
+    be the one greetd reads. If `luminos-desktop` points greetd at
+    another config file, or starts the session through a wrapper or
+    uwsm rather than plain `Hyprland`, tell Dawn.
 
 ### `luminos-keyring`
 
@@ -70,22 +74,38 @@ names pacman expects.
 Dawn itself (SPEC.md), replacing `calamares`, `calamares-git` and
 `calamares-settings`; `ckbcomp` was only there for Calamares. Besides
 the binaries, it should carry everything Dawn-specific the live session
-needs: the polkit action and the rule letting only the live user run the
-backend without a password, the desktop entry, `/etc/dawn/installer.toml`
-and the LuminOS branding folder. An offline install's step 6 removes
-`luminos-dawn` with `pacman -Rns`, so anything it owns also disappears
-from the installed system; anything placed in the ISO's `airootfs/`
-instead would stay behind.
+needs: the polkit action and rule, the desktop entry,
+`/etc/dawn/installer.toml` and the LuminOS branding folder. An offline
+install's step 6 removes `luminos-dawn` with `pacman -Rns`, so anything
+it owns also disappears from the installed system; anything placed in
+the ISO's `airootfs/` instead would stay behind.
+
+- Install the backend as `/usr/bin/dawn-backend`. The GUI starts it
+  through pkexec by that path, and the polkit action matches on it.
+- The polkit files are in Dawn's `config/polkit/`:
+  `org.luminos.dawn.policy` goes to `/usr/share/polkit-1/actions/`, and
+  `50-luminos-dawn.rules`, which lets the live user `luminos` start the
+  backend without a password, to `/usr/share/polkit-1/rules.d/`.
+- Runtime dependencies: `polkit` (pkexec) and `fontconfig` (the GUI
+  links it) for the GUI; for the backend, `arch-install-scripts`
+  (pacstrap, arch-chroot, genfstab), `util-linux`, `btrfs-progs`,
+  `dosfstools`, `parted` (partprobe), `squashfs-tools` (unsquashfs),
+  `gnupg` and `curl` (it checks the repositories are reachable before
+  an online install).
 
 ### `luminos-live`
 
 The ISO's live-only parts, packaged so an offline install can remove
-them in one step: decided with Dawn, whose side lands in its M3. It's
-installed only on the ISO: list it in `packages.x86_64`, never in the
-meta-packages. The "Live-only parts" item below says what goes in it.
-Add it to `installer.toml`'s `[offline_cleanup] remove_packages` (which
-`luminos-dawn` ships) only once the ISO actually installs it:
-`pacman -R` fails outright on a package that isn't installed.
+them in one step (decided with Dawn). It's installed only on the ISO:
+list it in `packages.x86_64`, never in the meta-packages. The
+"Live-only parts" item below says what goes in it. Dawn's side is done:
+an offline install removes every package in `installer.toml`'s
+`[offline_cleanup] remove_packages`. Add `luminos-live` there (the
+`installer.toml` that `luminos-dawn` ships) only once the ISO actually
+installs it: `pacman -R` fails outright on a package that isn't
+installed. Dawn's e2e test builds a stand-in `luminos-live` from
+releng's keyring reset, volatile journal and do-not-suspend units, and
+checks that none of it survives an offline install.
 
 ## ISO profile (the LuminOS repository's `releng/`)
 
@@ -103,13 +123,23 @@ Add it to `installer.toml`'s `[offline_cleanup] remove_packages` (which
   systemd-networkd, iwd and resolved. Dawn's Network screen scans and
   joins Wi-Fi through NetworkManager over D-Bus, and step 7 copies the
   joined network's profile from `/etc/NetworkManager/system-connections/`.
-  The ISO doesn't include `networkmanager` at all today.
+  The ISO doesn't include `networkmanager` at all today. Dawn saves the
+  joined network as a system-wide profile with its password in the
+  file, so step 7 can copy a working connection; NetworkManager only
+  allows that without a password prompt through the polkit rule its Arch
+  package ships, for `wheel` users in a local session. That's one more
+  reason to keep the live user in `wheel`.
 - **Live user**: keep it named `luminos` (step 6 runs
-  `userdel -r luminos`) and in `wheel`. Step 6 also removes the tty1
-  autologin drop-in at
+  `userdel -r luminos`, and Dawn's polkit rule names it) and in `wheel`.
+  Dawn runs as this user in the live desktop session. Step 6 also
+  removes the tty1 autologin drop-in at
   `/etc/systemd/system/getty@tty1.service.d/autologin.conf`. If the
   Hyprland live session logs in through greetd instead, Dawn's step 6
   has to remove that configuration instead, so tell Dawn.
+- **polkit**: the ISO needs `polkit` (a dependency of `luminos-dawn`)
+  for pkexec, and the live session must be an active logind session
+  (a normal autologin is): Dawn's "Restart now" asks logind to reboot,
+  which it allows without a password only for active sessions.
 - **Dawn in the live session** (SPEC.md): a Hyprland window rule that
   opens Dawn floating, centred, at a fixed size, matched on its app_id
   `luminos-dawn` (set in M2, see DECISIONS.md), plus an autostart entry
@@ -119,10 +149,13 @@ Add it to `installer.toml`'s `[offline_cleanup] remove_packages` (which
 - **`install_dir`** stays `arch`: Dawn reads the offline image from
   `/run/archiso/bootmnt/arch/x86_64/airootfs.sfs`, or from
   `/run/archiso/copytoram/airootfs.sfs` when archiso copied it to RAM.
-- **Boot entries**: leave archiso's `copytoram` default as it is. From
-  its M3, Dawn handles an image copied to RAM as well as one read from
-  the medium, and takes the kernel from the image itself (decided with
-  Dawn).
+- **Boot entries**: leave archiso's `copytoram` default as it is. Dawn
+  handles an image copied to RAM as well as one read from the medium,
+  takes the kernel from the image itself, and recognises the boot
+  medium from archiso's own kernel parameters (`archisosearchuuid=`,
+  `archisodevice=` or `archisolabel=`), so the boot entries have to
+  keep one of them (releng's use `archisosearchuuid=`). Its e2e test
+  boots from a USB stick with enough RAM for the copy, to cover this.
 - **Live-only parts**: an offline install copies the whole live image,
   and the ISO enables releng's live-only services from `/etc`; step 6
   removes only some of them. First drop what a desktop live ISO doesn't

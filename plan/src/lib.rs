@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Shared `InstallPlan` types, JSON schema and validation. No I/O: reading
-//! plan files, probing disks and talking to the backend socket are the
+//! Shared `InstallPlan` types, JSON schema and validation, plus the other
+//! types both binaries share: `installer.toml`'s ([`config`]) and the
+//! socket protocol's ([`protocol`]). No I/O: reading plan and config
+//! files, probing disks and talking to the backend socket are the
 //! frontend's and backend's job, not this crate's. See SPEC.md
 //! "Architecture".
 
+pub mod config;
 mod install_plan;
+pub mod protocol;
 mod redacted;
 pub mod validate;
 

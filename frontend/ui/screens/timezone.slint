@@ -3,8 +3,8 @@
 import { Button, ComboBox } from "std-widgets.slint";
 
 // SPEC.md: "Region and city | Searchable list, guessed from the chosen
-// locale." A fixed representative list stands in for the full IANA
-// zone list until that data is wired up.
+// locale." A fixed representative list stands in until M4's timezone
+// data lands.
 export component TimezoneScreen inherits VerticalLayout {
     in-out property <string> timezone;
 
@@ -14,13 +14,13 @@ export component TimezoneScreen inherits VerticalLayout {
     padding: 32px;
     spacing: 16px;
 
-    Text { text: "Timezone"; font-size: 22px; font-weight: 700; }
-    Text { text: "Region / City"; }
+    Text { text: @tr("Timezone"); font-size: 22px; font-weight: 700; }
+    Text { text: @tr("Region / City"); }
     ComboBox {
         model: [
             "Europe/Berlin", "Europe/London", "Europe/Paris",
             "America/New_York", "America/Los_Angeles", "America/Chicago",
-            "Asia/Tokyo", "Asia/Kolkata", "Australia/Sydney", "UTC",
+            "Asia/Tokyo", "Asia/Kolkata", "Australia/Sydney", "Etc/UTC",
         ];
         current-value: timezone;
         selected(value) => { timezone = value; }
@@ -30,8 +30,8 @@ export component TimezoneScreen inherits VerticalLayout {
 
     HorizontalLayout {
         spacing: 12px;
-        Button { text: "Back"; clicked => { back(); } }
+        Button { text: @tr("Back"); clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
-        Button { text: "Next"; primary: true; enabled: timezone != ""; clicked => { next(); } }
+        Button { text: @tr("Next"); primary: true; enabled: timezone != ""; clicked => { next(); } }
     }
 }

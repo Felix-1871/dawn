@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPEC.md: "A polkit rule letting only the live user run Dawn's backend
+// action without a password." Installed as
+// /usr/share/polkit-1/rules.d/50-luminos-dawn.rules, next to the action
+// in org.luminos.dawn.policy. The live user has no password to ask for.
+// Anyone else gets the action's defaults: an administrator's password.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.luminos.dawn.backend" && subject.user == "luminos") {
+        return polkit.Result.YES;
+    }
+});
