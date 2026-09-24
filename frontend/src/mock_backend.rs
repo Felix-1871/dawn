@@ -20,6 +20,7 @@ const GIB: u64 = 1024 * 1024 * 1024;
 
 pub struct MockBackend {
     online: bool,
+    setup_mode: bool,
     fail_online_installs: bool,
     installs: Mutex<Vec<InstallPlan>>,
 }
@@ -34,9 +35,17 @@ impl MockBackend {
     pub fn new() -> Self {
         Self {
             online: true,
+            setup_mode: false,
             fail_online_installs: false,
             installs: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The firmware reports Setup Mode, so the Disk screen offers to set
+    /// up Secure Boot.
+    pub fn in_setup_mode(mut self) -> Self {
+        self.setup_mode = true;
+        self
     }
 
     /// `check_online` reports no network, so the Network screen shows.
@@ -85,7 +94,7 @@ impl Backend for MockBackend {
         Ok(Firmware {
             uefi: true,
             secure_boot: false,
-            setup_mode: false,
+            setup_mode: self.setup_mode,
         })
     }
 

@@ -99,7 +99,7 @@ export component DiskScreen inherits VerticalLayout {
     }
 
     if is-setup-mode: CheckBox {
-        text: @tr("Set up Secure Boot with LuminOS keys");
+        text: @tr("Set up Secure Boot with {} keys", Theme.product-name);
         checked <=> secure-boot-enroll;
     }
 

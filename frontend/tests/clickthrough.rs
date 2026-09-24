@@ -153,6 +153,28 @@ async fn a_failed_install_shows_the_error_screen_with_its_log() -> Result<(), St
     Ok(())
 }
 
+/// SPEC.md: "Secure Boot checkbox appears only in Setup Mode, checked by
+/// default." Keeping it asks the backend to set up Secure Boot; unticking
+/// it leaves Secure Boot alone.
+async fn secure_boot_is_offered_in_setup_mode() -> Result<(), String> {
+    for keep in [true, false] {
+        let backend = Arc::new(MockBackend::new().in_setup_mode());
+        let app = start(&backend)?;
+        driver::wait_until("the probes", OUTCOME, || !app.get_probing()).await?;
+        assert!(
+            app.get_secure_boot_enroll(),
+            "checked by default in Setup Mode"
+        );
+        let mut answers = Answers::fixture(mock_backend::DISK);
+        answers.secure_boot = keep;
+        fill_to_summary(&app, Network::Online, &answers).await?;
+        click(&app, "Install")?;
+        wait_for_outcome(&app, OUTCOME).await?;
+        assert_eq!(backend.installs()[0].secure_boot.enroll, keep);
+    }
+    Ok(())
+}
+
 async fn an_unavailable_disk_cant_be_picked() -> Result<(), String> {
     let backend = Arc::new(MockBackend::new());
     let app = start(&backend)?;
@@ -172,6 +194,7 @@ fn clickthrough() {
         skipping_wifi_installs_from_the_live_image().await?;
         joining_wifi_carries_the_profile_into_the_plan().await?;
         a_failed_install_shows_the_error_screen_with_its_log().await?;
+        secure_boot_is_offered_in_setup_mode().await?;
         an_unavailable_disk_cant_be_picked().await?;
         Ok(())
     })

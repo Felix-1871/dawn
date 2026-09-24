@@ -18,9 +18,9 @@
 use std::future::Future;
 use std::time::{Duration, Instant};
 
-use frontend::AppWindow;
+use frontend::{AppWindow, Theme};
 use i_slint_backend_testing::ElementHandle;
-use slint::Model;
+use slint::{ComponentHandle as _, Model};
 
 pub const WELCOME: i32 = 0;
 pub const NETWORK: i32 = 1;
@@ -132,6 +132,9 @@ pub struct Answers {
     pub password: &'static str,
     /// The `/dev/disk/by-id/` path of the disk to pick.
     pub disk: String,
+    /// The Disk screen's Secure Boot checkbox, where it shows (only in
+    /// Setup Mode, as a fresh VM's firmware is).
+    pub secure_boot: bool,
 }
 
 impl Answers {
@@ -143,6 +146,7 @@ impl Answers {
             hostname: "ada-laptop",
             password: "correct-horse-battery-staple",
             disk: disk.into(),
+            secure_boot: false,
         }
     }
 }
@@ -216,6 +220,15 @@ pub async fn fill_to_summary(
             answers.disk,
             app.get_selected_device()
         ));
+    }
+    // Checked by default in Setup Mode (SPEC.md), so answering "no" means
+    // unticking it.
+    if app.get_is_setup_mode() && app.get_secure_boot_enroll() != answers.secure_boot {
+        let product = app.global::<Theme>().get_product_name();
+        click(app, &format!("Set up Secure Boot with {product} keys"))?;
+        if app.get_secure_boot_enroll() != answers.secure_boot {
+            return Err("the Secure Boot checkbox didn't change".to_string());
+        }
     }
     click(app, "Next")?;
 
