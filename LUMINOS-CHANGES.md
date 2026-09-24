@@ -106,8 +106,8 @@ the ISO's `airootfs/` instead would stay behind.
   and tzdata, which every system has.
 - The Done screen points people whose firmware wasn't in Setup Mode at
   how to set up Secure Boot later: `branding.toml`'s `secure_boot_url`,
-  the Arch Wiki's sbctl section for now. A LuminOS page for it would be
-  better.
+  the Arch Wiki's sbctl section, since LuminOS has no page of its own
+  for it.
 
 ### `luminos-live`
 
@@ -159,7 +159,11 @@ checks that none of it survives an offline install.
 - **Dawn in the live session** (SPEC.md): a Hyprland window rule that
   opens Dawn floating, centred, at a fixed size, matched on its app_id
   `luminos-dawn` (set in M2, see DECISIONS.md), plus an autostart entry
-  and a launcher bind. Put these in the live user's own Hyprland config
+  and a launcher bind. Start Dawn from inside the live Hyprland session
+  (`exec-once` or a `bind` does), so it inherits
+  `HYPRLAND_INSTANCE_SIGNATURE` and `XDG_RUNTIME_DIR`: the Keyboard
+  screen switches the session's layout through Hyprland's control
+  socket, with a `hyprland.conf` or a `hyprland.lua` configuration. Put these in the live user's own Hyprland config
   or in `luminos-dawn`, not in `/etc/skel`, so they don't carry over
   into installed systems.
 - **`install_dir`** stays `arch`: Dawn reads the offline image from
