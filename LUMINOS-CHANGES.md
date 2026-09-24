@@ -41,8 +41,9 @@ The meta-packages both the ISO and online installs are built from
     command is something like a `luminos-greeter` wrapper that starts
     Hyprland with a greeter config running regreet. Dawn's autologin
     option rewrites `/etc/greetd/config.toml` and currently writes
-    `command = "regreet"`, which can't work on its own; once the
-    wrapper's name is settled, Dawn has to use it.
+    `command = "regreet"`, which can't work on its own. Dawn fixes that
+    in its M3, either by keeping `luminos-desktop`'s own
+    `[default_session]` or by using this wrapper.
 
 ### `luminos-keyring`
 
@@ -76,6 +77,16 @@ and the LuminOS branding folder. An offline install's step 6 removes
 from the installed system; anything placed in the ISO's `airootfs/`
 instead would stay behind.
 
+### `luminos-live`
+
+The ISO's live-only parts, packaged so an offline install can remove
+them in one step: decided with Dawn, whose side lands in its M3. It's
+installed only on the ISO: list it in `packages.x86_64`, never in the
+meta-packages. The "Live-only parts" item below says what goes in it.
+Add it to `installer.toml`'s `[offline_cleanup] remove_packages` (which
+`luminos-dawn` ships) only once the ISO actually installs it:
+`pacman -R` fails outright on a package that isn't installed.
+
 ## ISO profile (the LuminOS repository's `releng/`)
 
 - **Desktop**: Hyprland on Wayland in place of i3 on X11 (the i3
@@ -106,21 +117,18 @@ instead would stay behind.
   or in `luminos-dawn`, not in `/etc/skel`, so they don't carry over
   into installed systems.
 - **`install_dir`** stays `arch`: Dawn reads the offline image from
-  `/run/archiso/bootmnt/arch/x86_64/airootfs.sfs`.
-
-## Waiting on decisions
-
-Two items depend on open decisions in DECISIONS.md's "Open items for the
-user". What LuminOS would change under the recommended option:
-
-- **Live-only parts in offline installs.** An offline install copies
-  the whole live image, and the ISO enables releng's live-only services
-  from `/etc`. Step 6 removes only some of them. Under the
-  recommendation, the ISO first drops what a desktop live ISO doesn't
+  `/run/archiso/bootmnt/arch/x86_64/airootfs.sfs`, or from
+  `/run/archiso/copytoram/airootfs.sfs` when archiso copied it to RAM.
+- **Boot entries**: leave archiso's `copytoram` default as it is. From
+  its M3, Dawn handles an image copied to RAM as well as one read from
+  the medium, and takes the kernel from the image itself (decided with
+  Dawn).
+- **Live-only parts**: an offline install copies the whole live image,
+  and the ISO enables releng's live-only services from `/etc`; step 6
+  removes only some of them. First drop what a desktop live ISO doesn't
   need: sshd and its `10-archiso.conf`, cloud-init, reflector,
-  choose-mirror and `Installation_guide`. The live-only pieces that
-  remain move into a `luminos-live` package installed only on the ISO,
-  so step 6 can remove them like `mkinitcpio-archiso`:
+  choose-mirror and `Installation_guide`. Then move the live-only pieces
+  that remain into `luminos-live`:
   - the pacman keyring reset: `pacman-init.service` and
     `etc-pacman.d-gnupg.mount`, which would otherwise wipe the installed
     system's keyring on every boot;
@@ -137,7 +145,3 @@ user". What LuminOS would change under the recommended option:
   `luminos-live` instead of entries in `packages.x86_64`. pacman then
   installs them as dependencies, and step 6's `pacman -Rns` removes
   them along with it.
-- **`copytoram`.** Under the recommendation, Dawn handles it and
-  LuminOS changes nothing. The alternative is adding `copytoram=n` to
-  every boot entry: `grub/grub.cfg`, `grub/loopback.cfg`, the syslinux
-  configs and the `efiboot` entries.

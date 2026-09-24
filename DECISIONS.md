@@ -240,47 +240,74 @@ Newest first.
   nightly workflow lands; until then the job (about 9 minutes) stays on
   every push, so each milestone's PR shows it. Agreed with the user.
 
-- **Known gap, to be fixed in a later milestone: step 7 sets neither the
-  timezone nor `LANG`.** SPEC.md's step 7 includes the timezone, and the
-  step's name says so, but no action writes `/etc/localtime` or
-  `/etc/locale.conf`, and the plan's `timezone` field is unused. Found
-  after M1 merged; the user chose to fix it later rather than reopen M1
-  during M2.
+- **Known gap, to be fixed in M3: step 7 sets neither the timezone nor
+  `LANG`.** SPEC.md's step 7 includes the timezone, and the step's name
+  says so, but no action writes `/etc/localtime` or `/etc/locale.conf`,
+  and the plan's `timezone` field is unused. Found after M1 merged; the
+  user chose to fix it in M3 rather than reopen M1 during M2.
+
+- **Offline installs remove the ISO's live-only parts as one package,
+  `luminos-live`.** Decided with the user; Dawn's side lands in M3. The
+  LuminOS ISO is Arch's releng profile underneath, and an offline
+  install copies the whole live image. Besides what step 6 already
+  removes, the installed system would keep, enabled from `/etc`: the
+  pacman keyring reset (`pacman-init.service` with
+  `etc-pacman.d-gnupg.mount`, which wipes the keyring on every boot),
+  sshd with archiso's password-login config, a volatile journal,
+  lid-close suspend disabled, reflector and choose-mirror, and
+  systemd-networkd/iwd next to NetworkManager. The ISO drops what a
+  desktop live ISO doesn't need and packages the rest as `luminos-live`,
+  installed only on the ISO, with its service enablement links inside
+  the package and live-only tools as its dependencies. Step 6 removes it
+  with `pacman -Rns`, like `mkinitcpio-archiso`, listed in
+  `installer.toml`'s `[offline_cleanup] remove_packages` (SPEC.md). That
+  list being config means an ISO without `luminos-live` yet just doesn't
+  list it, since `pacman -R` fails outright on a package that isn't
+  installed. Chosen over Dawn deleting a hardcoded list, as LuminOS's
+  Calamares setup does, which goes stale whenever the ISO profile
+  changes. The LuminOS side is in `LUMINOS-CHANGES.md`.
+
+- **Dawn copes with archiso's copy-to-RAM itself.** Decided with the
+  user; lands in M3. archiso's default (`copytoram=auto`) copies the
+  image into RAM and unmounts the boot medium when it isn't an optical
+  drive and there's at least 2 GiB of RAM to spare beyond the image,
+  which covers most USB boots, and the LuminOS boot entries don't
+  override it. Dawn will read the image from
+  `/run/archiso/copytoram/airootfs.sfs` when it exists, falling back to
+  the medium path, and take the kernel from the image's own
+  `/usr/lib/modules/<version>/vmlinuz` instead of the medium. That
+  departs from SPEC.md's "copy `vmlinuz-linux` from the medium if the
+  image has no kernel in `/boot`". It will also identify the boot medium
+  from the kernel command line (`archisodevice=` or `archisosearchuuid=`)
+  and refuse it as a target even when unmounted, because once it's
+  unmounted the existing mounted-disk check can't see it. Chosen over
+  the ISO setting `copytoram=n`, which would run the live desktop off
+  the USB stick.
+
+## Planned for M3
+
+Work the user scheduled for M3, on top of SPEC.md's own M3 scope. The
+M1 entries above have the reasoning.
+
+- **Offline cleanup removes `luminos-live`**, through `installer.toml`'s
+  `[offline_cleanup] remove_packages`. The e2e test ISO needs a
+  stand-in `luminos-live` under `tests/e2e/stand-ins/` for this, the
+  way `luminos-dawn` has one. It can carry releng's live-only units, so
+  the offline test also checks they're gone.
+- **Offline installs cope with archiso's copy-to-RAM:**
+  - the image path falls back to `/run/archiso/copytoram/`;
+  - the kernel comes from the image;
+  - the boot medium is refused by the UUID on the kernel command line;
+  - the e2e test adds a boot with `copytoram=y`.
+- **Step 7 writes the timezone** (`/etc/localtime`) **and `LANG`**
+  (`/etc/locale.conf`).
+- **greetd autologin stops hardcoding `command = "regreet"`**, which
+  can't run without a compositor to host it. Either keep
+  `luminos-desktop`'s own `[default_session]` and add only
+  `[initial_session]`, or use the greeter wrapper `luminos-desktop`
+  settles on (see `LUMINOS-CHANGES.md`).
 
 ## Open items for the user
-
-- **Offline installs keep the live image's live-only parts.** Step 6
-  removes what SPEC.md lists (Dawn, `mkinitcpio-archiso`, the tty1
-  autologin drop-in, the live user, archiso's mkinitcpio config), but
-  the LuminOS ISO is Arch's releng profile underneath, and it enables
-  more from `/etc`: the pacman keyring reset (`pacman-init.service` with
-  `etc-pacman.d-gnupg.mount`, which would wipe the installed system's
-  keyring on every boot), sshd with archiso's password-login config, a
-  volatile journal, lid-close suspend disabled, reflector and
-  choose-mirror, systemd-networkd/iwd next to NetworkManager, cloud-init
-  and the VM guest agents. LuminOS's current Calamares setup deletes
-  only the keyring reset, the autologin and root's live dotfiles.
-  Recommended: the ISO drops what a desktop live ISO doesn't need and
-  packages the rest as `luminos-live`, installed only on the ISO; step 6
-  then removes it like `mkinitcpio-archiso` (through `installer.toml`'s
-  `[offline_cleanup] remove_packages`, as SPEC.md sketches). Awaiting the
-  user's decision.
-
-- **`copytoram` on USB boots.** archiso's default copies the image into
-  RAM and unmounts the boot medium when it isn't an optical drive and
-  there's at least 2 GiB of RAM to spare beyond the image, which is most
-  laptops booting from USB. The LuminOS boot entries don't override it.
-  Both files the offline install reads (`airootfs.sfs` and the kernel on
-  the medium) then disappear, and with the medium unmounted, the
-  backend's safety check no longer recognises the live USB as a disk to
-  refuse. The e2e test boots from a CD-ROM, where `copytoram` stays off.
-  Recommended: Dawn uses `/run/archiso/copytoram/airootfs.sfs` when it
-  exists, takes the kernel from the image's own
-  `/usr/lib/modules/<version>/vmlinuz`, and identifies the boot medium
-  from the kernel command line (`archisodevice=` or
-  `archisosearchuuid=`) so it's refused even when unmounted; the e2e
-  test gains a `copytoram=y` boot. The alternative is the ISO setting
-  `copytoram=n` on every boot entry. Awaiting the user's decision.
 
 - **Changes needed in LuminOS itself** (its ISO profile and
   luminos-repository) are tracked in `LUMINOS-CHANGES.md`.
