@@ -25,3 +25,5 @@ greetd
 sudo
 # Step 7's zram config.
 zram-generator
+# Step 10's Secure Boot setup, in luminos-base per SPEC.md.
+sbctl

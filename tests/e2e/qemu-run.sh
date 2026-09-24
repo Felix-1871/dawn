@@ -8,16 +8,22 @@
 # any VM step, and don't improvise if they're missing.
 #
 # Usage:
-#   qemu-run.sh install <iso> <target-qcow2> <scenario> <serial-log> <timeout-seconds>
+#   qemu-run.sh install <iso> <target-qcow2> <vars> <scenario> <serial-log> <timeout-seconds>
 #     Boots <iso> with <target-qcow2> as a second disk (virtio,
 #     serial=dawn-target), passes <scenario> to the ISO's
 #     dawn-e2e.service as the SMBIOS credential dawn.scenario, and waits
 #     for gui_driver's DAWN-E2E-INSTALL-OK on the serial console.
-#   qemu-run.sh verify-login <target-qcow2> <serial-log> <timeout-seconds>
-#     Boots <target-qcow2> alone (no ISO) and waits for a "login:" prompt
-#     on the serial console.
+#   qemu-run.sh verify-login <target-qcow2> <vars> <scenario> <serial-log> <user> <password> <timeout-seconds>
+#     Boots <target-qcow2> alone (no ISO), logs in as <user> on the
+#     serial console (serial-login.py) and prints its report line.
 #
-# The serial console goes to <serial-log>, for run-e2e.sh's own checks.
+# <vars> is the VM's UEFI variable store, created from OVMF's empty one
+# (so in Setup Mode) when it doesn't exist yet. Passing the same file to
+# both commands boots the installed system with whatever the install
+# wrote there: its boot entry and, for secure-boot, the enrolled keys.
+# The secure-boot scenario runs OVMF's Secure Boot build, the others its
+# plain one. The serial console goes to <serial-log>, for run-e2e.sh's
+# own checks.
 
 set -euo pipefail
 
@@ -39,8 +45,43 @@ find_ovmf() {
   return 1
 }
 
-OVMF_CODE="$(find_ovmf OVMF_CODE)"
+# The Secure Boot build is named differently again.
+find_ovmf_secboot() {
+  for candidate in \
+    /usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd \
+    /usr/share/OVMF/OVMF_CODE_4M.secboot.fd \
+    /usr/share/OVMF/OVMF_CODE.secboot.fd
+  do
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "error: could not find OVMF's Secure Boot build; see CLAUDE.md's VM and test environment section" >&2
+  return 1
+}
+
 OVMF_VARS_TEMPLATE="$(find_ovmf OVMF_VARS)"
+
+# Sets FIRMWARE to the qemu arguments for <scenario>'s firmware with
+# <vars> as its variable store, creating the store if needed. Secure
+# Boot OVMF needs SMM, and its variables flash marked secure, so only
+# firmware code can write them.
+firmware_for() {
+  local scenario="$1" vars="$2"
+  [ -f "$vars" ] || cp "$OVMF_VARS_TEMPLATE" "$vars"
+  if [ "$scenario" = "secure-boot" ]; then
+    FIRMWARE=(-machine q35,smm=on,accel=kvm
+              -global driver=cfi.pflash01,property=secure,value=on
+              -global ICH9-LPC.disable_s3=1
+              -drive if=pflash,format=raw,readonly=on,file="$(find_ovmf_secboot)"
+              -drive if=pflash,format=raw,file="$vars")
+  else
+    FIRMWARE=(-machine q35,accel=kvm
+              -drive if=pflash,format=raw,readonly=on,file="$(find_ovmf OVMF_CODE)"
+              -drive if=pflash,format=raw,file="$vars")
+  fi
+}
 
 require_kvm() {
   if [ ! -e /dev/kvm ]; then
@@ -80,11 +121,10 @@ wait_for_marker() {
 
 cmd_install() {
   require_kvm
-  local iso="$1" target="$2" scenario="$3" log="$4" timeout="$5"
-  local vars; vars="$(mktemp /tmp/dawn-ovmf-vars-XXXXXX.fd)"
-  cp "$OVMF_VARS_TEMPLATE" "$vars"
+  local iso="$1" target="$2" vars="$3" scenario="$4" log="$5" timeout="$6"
+  firmware_for "$scenario" "$vars"
 
-  # online and offline boot the ISO as a CD, as a DVD or a VM's ISO file
+  # The other scenarios boot the ISO as a CD, as a DVD or a VM's ISO file
   # would: archiso reads the live image from the medium. For
   # fail-then-offline it's a USB stick, with RAM to spare, so archiso's
   # default copytoram=auto copies the image to RAM and unmounts the stick
@@ -108,9 +148,7 @@ cmd_install() {
   # /dev/disk/by-id/virtio-dawn-target link.
   : > "$log"
   qemu-system-x86_64 \
-    -machine q35,accel=kvm -cpu host -m "$memory" -no-reboot \
-    -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-    -drive if=pflash,format=raw,file="$vars" \
+    "${FIRMWARE[@]}" -cpu host -m "$memory" -no-reboot \
     "${medium[@]}" \
     -drive if=none,id=target,format=qcow2,file="$target" \
     -device virtio-blk-pci,drive=target,serial=dawn-target \
@@ -118,34 +156,38 @@ cmd_install() {
     -nographic -serial file:"$log" \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     &
-  local status=0
-  wait_for_marker "$timeout" "DAWN-E2E-INSTALL-OK" "$log" $! || status=$?
-  rm -f "$vars"
-  return "$status"
+  wait_for_marker "$timeout" "DAWN-E2E-INSTALL-OK" "$log" $!
 }
 
 cmd_verify_login() {
   require_kvm
-  local target="$1" log="$2" timeout="$3"
-  local vars; vars="$(mktemp /tmp/dawn-ovmf-vars-XXXXXX.fd)"
-  cp "$OVMF_VARS_TEMPLATE" "$vars"
+  local target="$1" vars="$2" scenario="$3" log="$4" user="$5" password="$6" timeout="$7"
+  firmware_for "$scenario" "$vars"
+  local socket; socket="$(mktemp -u /tmp/dawn-serial-XXXXXX.sock)"
 
-  # Fresh OVMF variables hold no boot entries, so bootindex=0 points the
-  # firmware straight at the disk's fallback bootloader, rather than
-  # risking network boot attempts on QEMU's default network card eating
-  # into the timeout.
+  # bootindex=0 points the firmware straight at the disk's bootloader if
+  # the variables hold no boot entry, rather than risking network boot
+  # attempts on QEMU's default network card eating into the timeout. The
+  # serial console is a socket serial-login.py types into, and it's
+  # logged to <serial-log> as well.
   : > "$log"
   qemu-system-x86_64 \
-    -machine q35,accel=kvm -cpu host -m 2048 -no-reboot \
-    -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-    -drive if=pflash,format=raw,file="$vars" \
+    "${FIRMWARE[@]}" -cpu host -m 2048 -no-reboot \
     -drive if=none,id=target,format=qcow2,file="$target" \
     -device virtio-blk-pci,drive=target,serial=dawn-target,bootindex=0 \
-    -nographic -serial file:"$log" \
-    &
+    -chardev socket,id=console,path="$socket",server=on,wait=off,logfile="$log" \
+    -serial chardev:console -display none -monitor none -parallel none \
+    >&2 &
+  local qemu_pid=$!
   local status=0
-  wait_for_marker "$timeout" "login:" "$log" $! || status=$?
-  rm -f "$vars"
+  python3 "$(dirname "$0")/serial-login.py" "$socket" "$user" "$password" "$timeout" \
+    || status=$?
+  kill "$qemu_pid" 2>/dev/null || true
+  wait "$qemu_pid" 2>/dev/null || true
+  rm -f "$socket"
+  if [ "$status" -ne 0 ]; then
+    cat "$log" >&2
+  fi
   return "$status"
 }
 
@@ -153,8 +195,8 @@ case "${1:-}" in
   install) shift; cmd_install "$@" ;;
   verify-login) shift; cmd_verify_login "$@" ;;
   *)
-    echo "usage: qemu-run.sh install <iso> <target-qcow2> <scenario> <serial-log> <timeout-seconds>" >&2
-    echo "       qemu-run.sh verify-login <target-qcow2> <serial-log> <timeout-seconds>" >&2
+    echo "usage: qemu-run.sh install <iso> <target-qcow2> <vars> <scenario> <serial-log> <timeout-seconds>" >&2
+    echo "       qemu-run.sh verify-login <target-qcow2> <vars> <scenario> <serial-log> <user> <password> <timeout-seconds>" >&2
     exit 2
     ;;
 esac
