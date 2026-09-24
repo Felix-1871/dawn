@@ -1,49 +1,127 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Button, LineEdit } from "std-widgets.slint";
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+export struct WifiNetwork {
+    ssid: string,
+    // 0 to 100.
+    strength: int,
+    secured: bool,
+}
 
 // SPEC.md: "A Wi-Fi network and password via NetworkManager, or Skip |
 // Only shown when offline; Skip means an offline install from the
-// ISO's image." The frontend talks to NetworkManager over D-Bus itself
-// (SPEC.md "Architecture") — that wiring lands in M3; this screen is
-// mock-backend only for now, with a plain network name field standing
-// in for a real scan-and-join flow.
+// ISO's image." The GUI talks to NetworkManager over D-Bus itself
+// (SPEC.md "Architecture"); this screen only shows what Rust found.
+// What the Network screen is doing or what went wrong, set from Rust;
+// the wording stays here so it goes through @tr.
+export enum WifiStatus {
+    idle,
+    scanning,
+    // status-detail: the network's name.
+    connecting,
+    // status-detail: the network's name.
+    wrong-password,
+    // status-detail: the network's name.
+    timed-out,
+    // status-detail: the system's own error message.
+    failed,
+}
+
 export component NetworkScreen inherits VerticalLayout {
-    in-out property <string> network-name;
-    in-out property <string> network-password;
+    in property <[WifiNetwork]> networks;
+    // Whether this PC has a Wi-Fi adapter at all.
+    in property <bool> wifi-available;
+    in property <bool> busy;
+    in property <WifiStatus> status;
+    in property <string> status-detail;
+    in-out property <string> selected-ssid;
+    in-out property <string> password;
 
     callback back();
+    callback rescan();
     callback join();
     callback skip();
 
     padding: 32px;
-    spacing: 16px;
+    spacing: 14px;
 
-    Text { text: "Connect to Wi-Fi"; font-size: 22px; font-weight: 700; }
+    Text { text: @tr("Connect to Wi-Fi"); font-size: 22px; font-weight: 700; }
     Text {
-        text: "You're offline. Join a network to install online, or skip to install from the live image.";
+        text: @tr("This PC is offline. Join a network to install the newest packages, or skip to install from this live image.");
         wrap: word-wrap;
     }
 
-    Text { text: "Network name"; }
-    LineEdit {
-        text <=> network-name;
-        placeholder-text: "home-wifi";
+    if !wifi-available: Text {
+        text: @tr("No Wi-Fi adapter was found.");
+        color: #888888;
     }
 
-    Text { text: "Password"; }
-    LineEdit {
-        text <=> network-password;
-        input-type: InputType.password;
+    if wifi-available: ScrollView {
+        vertical-stretch: 1;
+        min-height: 120px;
+        VerticalLayout {
+            spacing: 6px;
+            for network in networks: Rectangle {
+                height: 40px;
+                border-radius: 6px;
+                border-width: 2px;
+                border-color: network.ssid == selected-ssid ? Theme.accent : #cccccc;
+                background: network.ssid == selected-ssid ? Theme.accent.with-alpha(0.08) : transparent;
+                accessible-role: list-item;
+                accessible-label: @tr("Wi-Fi network {}", network.ssid);
+                accessible-action-default => { selected-ssid = network.ssid; }
+                TouchArea {
+                    clicked => { selected-ssid = network.ssid; }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Text { text: network.ssid; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text {
+                        text: network.secured
+                            ? @tr("secured, {}%", network.strength)
+                            : @tr("{}%", network.strength);
+                        vertical-alignment: center;
+                        color: #888888;
+                    }
+                }
+            }
+        }
     }
 
-    Rectangle { vertical-stretch: 1; }
+    if wifi-available: HorizontalLayout {
+        spacing: 12px;
+        Text { text: @tr("Password"); vertical-alignment: center; }
+        LineEdit {
+            text <=> password;
+            input-type: InputType.password;
+            enabled: !busy;
+        }
+    }
+
+    if status != WifiStatus.idle: Text {
+        text: status == WifiStatus.scanning ? @tr("Looking for networks…")
+            : status == WifiStatus.connecting ? @tr("Connecting to {}…", status-detail)
+            : status == WifiStatus.wrong-password ? @tr("Couldn't connect to {}. Check the password and try again.", status-detail)
+            : status == WifiStatus.timed-out ? @tr("Connecting to {} took too long.", status-detail)
+            : @tr("Wi-Fi isn't working: {}", status-detail);
+        wrap: word-wrap;
+        color: status == WifiStatus.scanning || status == WifiStatus.connecting ? #888888 : #d9534f;
+    }
 
     HorizontalLayout {
         spacing: 12px;
-        Button { text: "Back"; clicked => { back(); } }
+        Button { text: @tr("Back"); enabled: !busy; clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
-        Button { text: "Skip"; clicked => { skip(); } }
-        Button { text: "Join"; primary: true; enabled: network-name != ""; clicked => { join(); } }
+        if wifi-available: Button { text: @tr("Rescan"); enabled: !busy; clicked => { rescan(); } }
+        Button { text: @tr("Skip"); enabled: !busy; clicked => { skip(); } }
+        if wifi-available: Button {
+            text: @tr("Join");
+            primary: true;
+            enabled: !busy && selected-ssid != "";
+            clicked => { join(); }
+        }
     }
 }

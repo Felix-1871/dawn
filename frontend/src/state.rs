@@ -2,7 +2,7 @@
 
 //! Turns what the screens collected into a real [`plan::InstallPlan`].
 //! Kept free of the generated Slint types so it's plain, testable Rust:
-//! `main.rs` reads the `AppWindow`'s properties into [`PlanFields`] and
+//! `lib.rs` reads the `AppWindow`'s properties into [`PlanFields`] and
 //! hands them here.
 
 use plan::{
@@ -10,18 +10,22 @@ use plan::{
     Source, User,
 };
 
-/// Everything the nine screens collected, gathered from `AppWindow`'s
-/// properties. One field per plan input; `is_offline` and
-/// `network_name` decide `source` and `network_profile` rather than
-/// being plan fields themselves.
+/// Everything the screens collected, gathered from `AppWindow`'s
+/// properties, plus what `installer.toml` fixes (`packages`).
 pub struct PlanFields {
     pub locale: String,
     pub kb_layout: String,
     pub kb_variant: String,
     pub timezone: String,
     pub hostname: String,
-    pub is_offline: bool,
-    pub network_name: String,
+    /// Whether the package repositories were reachable, last checked:
+    /// at startup, or after joining Wi-Fi. Decides online (pacstrap) or
+    /// offline (the live image) install.
+    pub online: bool,
+    /// The Wi-Fi profile joined on the Network screen, if any. It's set
+    /// up on the installed system too, whichever way it's installed.
+    pub network_profile: String,
+    pub packages: Vec<String>,
     pub disk_device: String,
     pub secure_boot_enroll: bool,
     pub full_name: String,
@@ -30,19 +34,7 @@ pub struct PlanFields {
     pub autologin: bool,
 }
 
-/// The meta-packages a fresh install pulls in (SPEC.md `installer.toml`
-/// example). Fixed for v1 — not something the UI collects.
-const PACKAGES: &[&str] = &["luminos-base", "luminos-desktop"];
-
 pub fn build_install_plan(fields: &PlanFields) -> InstallPlan {
-    let source = if fields.is_offline {
-        Source::Squashfs
-    } else {
-        Source::Pacstrap
-    };
-    let network_profile =
-        (fields.is_offline && !fields.network_name.is_empty()).then(|| fields.network_name.clone());
-
     InstallPlan {
         version: CURRENT_VERSION,
         locale: fields.locale.clone(),
@@ -52,9 +44,14 @@ pub fn build_install_plan(fields: &PlanFields) -> InstallPlan {
         },
         timezone: fields.timezone.clone(),
         hostname: fields.hostname.clone(),
-        source,
-        packages: PACKAGES.iter().map(|p| p.to_string()).collect(),
-        network_profile,
+        source: if fields.online {
+            Source::Pacstrap
+        } else {
+            Source::Squashfs
+        },
+        packages: fields.packages.clone(),
+        network_profile: (!fields.network_profile.is_empty())
+            .then(|| fields.network_profile.clone()),
         // Manual mode needs partition assignments this screen doesn't
         // collect yet (M7 scope, SPEC.md milestones) — the Disk
         // screen's Manual toggle stays disabled until then, so Erase
@@ -112,8 +109,9 @@ mod tests {
             kb_variant: "".into(),
             timezone: "Europe/Berlin".into(),
             hostname: "ada-laptop".into(),
-            is_offline: false,
-            network_name: "".into(),
+            online: true,
+            network_profile: "".into(),
+            packages: vec!["luminos-base".into(), "luminos-desktop".into()],
             disk_device: "/dev/disk/by-id/nvme-EXAMPLE_SERIAL".into(),
             secure_boot_enroll: false,
             full_name: "Ada Lovelace".into(),
@@ -131,21 +129,20 @@ mod tests {
     }
 
     #[test]
-    fn builds_an_offline_plan_with_the_joined_network() {
+    fn joining_wifi_carries_the_profile_into_the_plan() {
         let mut fields = sample_fields();
-        fields.is_offline = true;
-        fields.network_name = "home-wifi".into();
+        fields.network_profile = "home-wifi".into();
         let plan = build_install_plan(&fields);
-        assert_eq!(plan.source, Source::Squashfs);
+        assert_eq!(plan.source, Source::Pacstrap);
         assert_eq!(plan.network_profile, Some("home-wifi".to_string()));
     }
 
     #[test]
-    fn skipping_the_network_screen_leaves_no_profile() {
+    fn staying_offline_installs_from_the_live_image() {
         let mut fields = sample_fields();
-        fields.is_offline = true;
-        fields.network_name = "".into();
+        fields.online = false;
         let plan = build_install_plan(&fields);
+        assert_eq!(plan.source, Source::Squashfs);
         assert_eq!(plan.network_profile, None);
     }
 

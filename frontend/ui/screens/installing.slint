@@ -1,20 +1,60 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ProgressIndicator } from "std-widgets.slint";
+import { Button, ProgressIndicator, ScrollView } from "std-widgets.slint";
 
 // SPEC.md: "Progress bar, current step, optional branded slideshow,
-// expandable log." Real progress events arrive over the socket in M3;
-// this shows a static placeholder so the screen exists and is
-// reachable in M2's mock-backend mode.
+// expandable log." Progress and log lines arrive from the backend as
+// they happen. The slideshow is M5's.
 export component InstallingScreen inherits VerticalLayout {
-    in property <string> current-step: "Starting install…";
-    in property <float> progress: 0;
+    // 0 until the backend reports its first step.
+    in property <int> step-number;
+    in property <string> step-name;
+    // 0.0 to 1.0.
+    in property <float> progress;
+    in property <[string]> log-lines;
+    in-out property <bool> show-log;
 
     padding: 32px;
-    spacing: 20px;
-    alignment: center;
+    spacing: 16px;
 
-    Text { text: "Installing"; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
-    Text { text: current-step; horizontal-alignment: center; }
-    ProgressIndicator { progress: progress; width: 100%; }
+    Text { text: @tr("Installing"); font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+    Text {
+        text: step-number == 0 ? @tr("Starting…") : @tr("Step {}: {}", step-number, step-name);
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    ProgressIndicator { progress: progress; height: 8px; }
+    Text { text: @tr("{}%", Math.round(progress * 100)); horizontal-alignment: center; color: #888888; }
+
+    HorizontalLayout {
+        alignment: center;
+        Button {
+            text: show-log ? @tr("Hide details") : @tr("Show details");
+            clicked => { show-log = !show-log; }
+        }
+    }
+
+    // Follows the newest line, like a terminal, until scrolled up to read
+    // an older one; scrolling back to the bottom follows again. A plain
+    // ScrollView rather than a ListView: the GUI keeps at most a few
+    // hundred lines, and a ListView's row estimates nudge the scroll
+    // position off the last line.
+    if show-log: ScrollView {
+        property <length> bottom: min(0px, self.visible-height - self.content-height);
+        property <bool> following: true;
+        vertical-stretch: 1;
+        changed content-height => { if (following) { self.content-y = bottom; } }
+        changed visible-height => { if (following) { self.content-y = bottom; } }
+        scrolled => { following = self.content-y <= bottom + 1px; }
+        VerticalLayout {
+            for line in log-lines: Text {
+                text: line;
+                font-family: "monospace";
+                font-size: 11px;
+                wrap: no-wrap;
+            }
+        }
+    }
+
+    if !show-log: Rectangle { vertical-stretch: 1; }
 }

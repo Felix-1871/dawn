@@ -1,39 +1,179 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Canned answers for the three probe requests SPEC.md's wire protocol
-//! defines (`list_disks`, `probe_firmware`, `check_online`), standing
-//! in for the real Unix-socket backend until M3 wires that up. Every
-//! screen is built against this same shape of data, so swapping this
-//! module for a real socket client later shouldn't touch the UI.
+//! SPEC.md's mock-backend mode: canned answers in place of
+//! `dawn-backend`, so the screens can be built and clicked through on any
+//! laptop without root, and the UI smoke test runs anywhere. Installs
+//! report a quick fake progression from another thread, the way the real
+//! backend's events arrive.
 
-pub struct MockDisk {
-    pub device: &'static str,
-    pub model: &'static str,
-    pub size_gib: i32,
-    pub serial: &'static str,
+use std::sync::Mutex;
+use std::time::Duration;
+
+use plan::protocol::{DiskInfo, Event};
+use plan::{InstallPlan, Source};
+
+use crate::backend::{Backend, EventSink, Firmware};
+use crate::wifi::{ConnectError, Network, Wifi};
+
+pub const DISK: &str = "/dev/disk/by-id/nvme-EXAMPLE_SERIAL";
+const GIB: u64 = 1024 * 1024 * 1024;
+
+pub struct MockBackend {
+    online: bool,
+    fail_online_installs: bool,
+    installs: Mutex<Vec<InstallPlan>>,
 }
 
-pub fn list_disks() -> Vec<MockDisk> {
-    vec![MockDisk {
-        device: "/dev/disk/by-id/nvme-EXAMPLE_SERIAL",
-        model: "EXAMPLE SSD 512GB",
-        size_gib: 512,
-        serial: "EXAMPLE_SERIAL",
-    }]
-}
-
-pub struct FirmwareProbe {
-    pub is_uefi: bool,
-    pub is_setup_mode: bool,
-}
-
-pub fn probe_firmware() -> FirmwareProbe {
-    FirmwareProbe {
-        is_uefi: true,
-        is_setup_mode: false,
+impl Default for MockBackend {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-pub fn check_online() -> bool {
-    true
+impl MockBackend {
+    pub fn new() -> Self {
+        Self {
+            online: true,
+            fail_online_installs: false,
+            installs: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// `check_online` reports no network, so the Network screen shows.
+    pub fn offline(mut self) -> Self {
+        self.online = false;
+        self
+    }
+
+    /// Online installs fail in step 5 the way an unreachable mirror
+    /// makes pacstrap fail, offering the offline install instead.
+    pub fn failing_online_installs(mut self) -> Self {
+        self.fail_online_installs = true;
+        self
+    }
+
+    /// Every plan an install was started with, oldest first.
+    pub fn installs(&self) -> Vec<InstallPlan> {
+        self.installs
+            .lock()
+            .map(|installs| installs.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Backend for MockBackend {
+    fn list_disks(&self) -> Result<Vec<DiskInfo>, String> {
+        Ok(vec![
+            DiskInfo {
+                device: DISK.to_string(),
+                model: "EXAMPLE SSD 512GB".to_string(),
+                serial: "EXAMPLE_SERIAL".to_string(),
+                size_bytes: 512 * GIB,
+                unavailable: None,
+            },
+            DiskInfo {
+                device: "/dev/disk/by-id/usb-EXAMPLE_STICK-0:0".to_string(),
+                model: "EXAMPLE STICK".to_string(),
+                serial: "STICK".to_string(),
+                size_bytes: 16 * GIB,
+                unavailable: Some("is smaller than the 32 GiB an install needs".to_string()),
+            },
+        ])
+    }
+
+    fn probe_firmware(&self) -> Result<Firmware, String> {
+        Ok(Firmware {
+            uefi: true,
+            secure_boot: false,
+            setup_mode: false,
+        })
+    }
+
+    fn check_online(&self) -> Result<bool, String> {
+        Ok(self.online)
+    }
+
+    fn validate(&self, plan: &InstallPlan) -> Result<Vec<String>, String> {
+        Ok(match plan::validate::validate(plan) {
+            Ok(()) => Vec::new(),
+            Err(errors) => errors.iter().map(ToString::to_string).collect(),
+        })
+    }
+
+    fn install(&self, plan: &InstallPlan, on_event: EventSink) -> Result<(), String> {
+        if let Ok(mut installs) = self.installs.lock() {
+            installs.push(plan.clone());
+        }
+        let fail = self.fail_online_installs && plan.source == Source::Pacstrap;
+        std::thread::spawn(move || {
+            let steps: &[(u32, &str)] = &[
+                (1, "Validate plan and re-probe the disk"),
+                (5, "Install the base system"),
+                (9, "Build UKIs"),
+                (12, "Enable services, copy the log, unmount"),
+            ];
+            for (n, &(step, name)) in steps.iter().enumerate() {
+                on_event(Event::Progress {
+                    step,
+                    name: name.to_string(),
+                    percent: n as f32 / steps.len() as f32 * 100.0,
+                });
+                on_event(Event::Log {
+                    line: format!("==> Step {step}: {name}"),
+                });
+                std::thread::sleep(Duration::from_millis(20));
+                if fail && step == 5 {
+                    let log_tail = vec![
+                        "==> Step 5: Install the base system".to_string(),
+                        "error: failed retrieving file 'glibc-2.44-1-x86_64.pkg.tar.zst' from mirror.example : Connection timed out".to_string(),
+                        "error: failed to commit transaction (failed to retrieve some files)".to_string(),
+                    ];
+                    on_event(Event::Error {
+                        step: Some(5),
+                        message: "Install the base system: pacstrap exited with status 1"
+                            .to_string(),
+                        log_tail,
+                        offline_fallback: true,
+                    });
+                    return;
+                }
+            }
+            on_event(Event::Progress {
+                step: 12,
+                name: "Enable services, copy the log, unmount".to_string(),
+                percent: 100.0,
+            });
+            on_event(Event::Done);
+        });
+        Ok(())
+    }
+}
+
+/// Canned Wi-Fi for mock-backend mode: two networks, and joining always
+/// works.
+pub struct MockWifi;
+
+impl Wifi for MockWifi {
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn scan(&self) -> Result<Vec<Network>, String> {
+        Ok(vec![
+            Network {
+                ssid: "home-wifi".to_string(),
+                strength: 80,
+                secured: true,
+            },
+            Network {
+                ssid: "cafe".to_string(),
+                strength: 35,
+                secured: false,
+            },
+        ])
+    }
+
+    fn connect(&self, ssid: &str, _password: &str) -> Result<String, ConnectError> {
+        Ok(ssid.to_string())
+    }
 }

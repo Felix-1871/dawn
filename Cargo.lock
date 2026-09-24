@@ -1453,6 +1453,8 @@ dependencies = [
 name = "frontend"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "futures-channel",
  "i-slint-backend-testing",
  "plan",
  "serde",
@@ -1460,6 +1462,7 @@ dependencies = [
  "slint",
  "slint-build",
  "toml 0.8.23",
+ "zbus",
 ]
 
 [[package]]

@@ -2,7 +2,8 @@
 
 import { Button, ComboBox, LineEdit } from "std-widgets.slint";
 
-// SPEC.md: "Layout and variant | Live preview field"
+// SPEC.md: "Layout and variant | Live preview field". The full layout
+// list is M4's keyboard data; this fixed list stands in until then.
 export component KeyboardScreen inherits VerticalLayout {
     in-out property <string> layout;
     in-out property <string> variant;
@@ -14,33 +15,33 @@ export component KeyboardScreen inherits VerticalLayout {
     padding: 32px;
     spacing: 16px;
 
-    Text { text: "Keyboard"; font-size: 22px; font-weight: 700; }
+    Text { text: @tr("Keyboard"); font-size: 22px; font-weight: 700; }
 
-    Text { text: "Layout"; }
+    Text { text: @tr("Layout"); }
     ComboBox {
         model: ["us", "de", "fr", "gb"];
         current-value: layout;
         selected(value) => { layout = value; }
     }
 
-    Text { text: "Variant"; }
+    Text { text: @tr("Variant"); }
     LineEdit {
         text <=> variant;
-        placeholder-text: "(none)";
+        placeholder-text: @tr("(none)");
     }
 
-    Text { text: "Try it out"; }
+    Text { text: @tr("Try it out"); }
     LineEdit {
         text <=> preview-text;
-        placeholder-text: "Type here to check your layout";
+        placeholder-text: @tr("Type here to check your layout");
     }
 
     Rectangle { vertical-stretch: 1; }
 
     HorizontalLayout {
         spacing: 12px;
-        Button { text: "Back"; clicked => { back(); } }
+        Button { text: @tr("Back"); clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
-        Button { text: "Next"; primary: true; enabled: layout != ""; clicked => { next(); } }
+        Button { text: @tr("Next"); primary: true; enabled: layout != ""; clicked => { next(); } }
     }
 }

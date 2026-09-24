@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, TextEdit } from "std-widgets.slint";
+
+// SPEC.md "On failure": the install stopped at a step and unmounted the
+// target. "The UI offers Retry from start, Save log, and Quit. If
+// pacstrap fails on the network, the error screen also offers switching
+// to the offline install." Retry runs the same plan again from step 1
+// (DECISIONS.md, M3).
+export component ErrorScreen inherits VerticalLayout {
+    // 0 when the install never started (pkexec refused, say).
+    in property <int> step;
+    // The backend's own description of what failed.
+    in property <string> message;
+    in property <string> log-tail;
+    in property <bool> offline-fallback;
+    in property <string> saved-log-path;
+    in property <string> save-log-error;
+
+    callback retry();
+    callback install-offline();
+    callback save-log();
+    callback quit();
+
+    padding: 32px;
+    spacing: 12px;
+
+    Text {
+        text: step == 0 ? @tr("The install couldn't start") : @tr("The install failed at step {}", step);
+        font-size: 22px;
+        font-weight: 700;
+        color: #d9534f;
+        wrap: word-wrap;
+    }
+    Text { text: message; wrap: word-wrap; }
+    if step > 1: Text {
+        text: @tr("The disk was already changed, so it doesn't hold its old contents any more, but no working system was installed on it.");
+        wrap: word-wrap;
+        color: #888888;
+    }
+
+    if offline-fallback: Text {
+        text: @tr("The package repositories couldn't be reached. You can install from this live image instead, which works without a network.");
+        wrap: word-wrap;
+    }
+
+    // Opens at the end of the log, where the failure is: a TextEdit keeps
+    // its cursor in view, so the cursor goes to the end (offsets past the
+    // end are clamped to it).
+    TextEdit {
+        text: log-tail;
+        read-only: true;
+        font-size: 11px;
+        vertical-stretch: 1;
+        accessible-label: @tr("Last lines of the install log");
+        changed content-height => { self.set-selection-offsets(2147483647, 2147483647); }
+        changed visible-height => { self.set-selection-offsets(2147483647, 2147483647); }
+    }
+
+    if saved-log-path != "": Text { text: @tr("Saved the log to {}", saved-log-path); wrap: word-wrap; }
+    if save-log-error != "": Text {
+        text: @tr("Couldn't save the log: {}", save-log-error);
+        wrap: word-wrap;
+        color: #d9534f;
+    }
+
+    HorizontalLayout {
+        spacing: 12px;
+        Button { text: @tr("Quit"); clicked => { quit(); } }
+        Button { text: @tr("Save log"); clicked => { save-log(); } }
+        Rectangle { horizontal-stretch: 1; }
+        if offline-fallback: Button {
+            text: @tr("Install offline instead");
+            clicked => { install-offline(); }
+        }
+        Button { text: @tr("Retry from start"); primary: true; clicked => { retry(); } }
+    }
+}

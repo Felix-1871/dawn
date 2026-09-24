@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Button } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
 
 // SPEC.md: "Restart now or keep the live session; after Secure Boot
 // setup, reminds the user to switch Secure Boot on in firmware if it
 // isn't."
 export component DoneScreen inherits VerticalLayout {
     in property <bool> secure-boot-enroll;
+    in property <string> restart-error;
 
     callback restart();
     callback keep-live-session();
@@ -15,19 +17,26 @@ export component DoneScreen inherits VerticalLayout {
     spacing: 20px;
     alignment: center;
 
-    Text { text: "All done"; font-size: 26px; font-weight: 700; horizontal-alignment: center; }
-    Text { text: "LuminOS is installed."; horizontal-alignment: center; }
+    Text { text: @tr("All done"); font-size: 26px; font-weight: 700; horizontal-alignment: center; }
+    Text { text: @tr("{} is installed.", Theme.product-name); horizontal-alignment: center; }
 
     if secure-boot-enroll: Text {
-        text: "Remember to switch Secure Boot on in your firmware if it isn't already.";
+        text: @tr("Remember to switch Secure Boot on in your firmware if it isn't already.");
         wrap: word-wrap;
+        horizontal-alignment: center;
+    }
+
+    if restart-error != "": Text {
+        text: @tr("Couldn't restart: {}", restart-error);
+        wrap: word-wrap;
+        color: #d9534f;
         horizontal-alignment: center;
     }
 
     HorizontalLayout {
         spacing: 12px;
         alignment: center;
-        Button { text: "Keep live session"; clicked => { keep-live-session(); } }
-        Button { text: "Restart now"; primary: true; clicked => { restart(); } }
+        Button { text: @tr("Keep live session"); clicked => { keep-live-session(); } }
+        Button { text: @tr("Restart now"); primary: true; clicked => { restart(); } }
     }
 }

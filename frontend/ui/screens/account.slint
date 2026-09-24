@@ -7,12 +7,15 @@ import { Button, CheckBox, LineEdit } from "std-widgets.slint";
 // from full name, editable." Derivation itself is Rust's job (it needs
 // the same validation rules the backend enforces); this screen just
 // reports edits so Rust knows once the user has taken over a field.
+// installer.toml's `[screens] autologin_option` decides whether the
+// autologin checkbox appears at all.
 export component AccountScreen inherits VerticalLayout {
     in-out property <string> full-name;
     in-out property <string> username;
     in-out property <string> hostname;
     in-out property <string> password;
     in-out property <bool> autologin;
+    in property <bool> autologin-option;
 
     callback full-name-edited(string);
     callback username-edited(string);
@@ -23,35 +26,35 @@ export component AccountScreen inherits VerticalLayout {
     padding: 32px;
     spacing: 14px;
 
-    Text { text: "Account"; font-size: 22px; font-weight: 700; }
+    Text { text: @tr("Account"); font-size: 22px; font-weight: 700; }
 
-    Text { text: "Full name"; }
+    Text { text: @tr("Full name"); }
     LineEdit {
         text <=> full-name;
         placeholder-text: "Ada Lovelace";
         edited(text) => { full-name-edited(text); }
     }
 
-    Text { text: "Username"; }
+    Text { text: @tr("Username"); }
     LineEdit {
         text <=> username;
         edited(text) => { username-edited(text); }
     }
 
-    Text { text: "Hostname"; }
+    Text { text: @tr("Hostname"); }
     LineEdit {
         text <=> hostname;
         edited(text) => { hostname-edited(text); }
     }
 
-    Text { text: "Password"; }
+    Text { text: @tr("Password"); }
     LineEdit {
         text <=> password;
         input-type: InputType.password;
     }
 
-    CheckBox {
-        text: "Log in automatically";
+    if autologin-option: CheckBox {
+        text: @tr("Log in automatically");
         checked <=> autologin;
     }
 
@@ -59,10 +62,10 @@ export component AccountScreen inherits VerticalLayout {
 
     HorizontalLayout {
         spacing: 12px;
-        Button { text: "Back"; clicked => { back(); } }
+        Button { text: @tr("Back"); clicked => { back(); } }
         Rectangle { horizontal-stretch: 1; }
         Button {
-            text: "Next";
+            text: @tr("Next");
             primary: true;
             enabled: full-name != "" && username != "" && hostname != "" && password != "";
             clicked => { next(); }

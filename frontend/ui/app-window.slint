@@ -2,7 +2,7 @@
 
 import { Theme } from "theme.slint";
 import { WelcomeScreen } from "screens/welcome.slint";
-import { NetworkScreen } from "screens/network.slint";
+import { NetworkScreen, WifiNetwork, WifiStatus } from "screens/network.slint";
 import { KeyboardScreen } from "screens/keyboard.slint";
 import { TimezoneScreen } from "screens/timezone.slint";
 import { DiskScreen, DiskInfo } from "screens/disk.slint";
@@ -10,28 +10,43 @@ import { AccountScreen } from "screens/account.slint";
 import { SummaryScreen } from "screens/summary.slint";
 import { InstallingScreen } from "screens/installing.slint";
 import { DoneScreen } from "screens/done.slint";
+import { ErrorScreen } from "screens/error.slint";
 
-export { DiskInfo, Theme }
+export { DiskInfo, Theme, WifiNetwork, WifiStatus }
 
 // SPEC.md "User flow": nine screens, linear, with Back on every screen
-// until Install is pressed; Network only appears when offline.
+// until Install is pressed; Network only appears when offline; an
+// install that fails goes to the error screen instead of Done.
 export component AppWindow inherits Window {
     title: Theme.product-name;
+    icon: Theme.icon;
     preferred-width: 820px;
     preferred-height: 620px;
     min-width: 640px;
     min-height: 520px;
 
     // 0 Welcome, 1 Network, 2 Keyboard, 3 Timezone, 4 Disk, 5 Account,
-    // 6 Summary, 7 Installing, 8 Done.
+    // 6 Summary, 7 Installing, 8 Done, 9 Error.
     in-out property <int> current-screen: 0;
 
-    // Mock-backend probe results (M2); a real socket backend replaces
-    // these in M3 without the screens themselves changing.
+    // The backend's probes (SPEC.md "Architecture"), filled in by Rust
+    // once they answer.
+    in-out property <bool> probing: true;
+    in-out property <string> probe-error;
     in-out property <bool> is-offline: false;
     in-out property <bool> is-uefi: true;
     in-out property <bool> is-setup-mode: false;
     in property <[DiskInfo]> disks;
+
+    // Wi-Fi, through NetworkManager (the Network screen).
+    in property <[WifiNetwork]> wifi-networks;
+    in-out property <bool> wifi-available: true;
+    in-out property <bool> wifi-busy;
+    in-out property <WifiStatus> wifi-status;
+    in-out property <string> wifi-status-detail;
+    in-out property <string> selected-ssid;
+    in-out property <string> wifi-password;
+    in-out property <string> network-profile;
 
     // Plan fields, one group per screen.
     in-out property <string> locale: "en_US.UTF-8";
@@ -39,10 +54,10 @@ export component AppWindow inherits Window {
     in-out property <string> kb-variant;
     in-out property <string> kb-preview;
     in-out property <string> timezone;
-    in-out property <string> network-name;
-    in-out property <string> network-password;
     in-out property <string> selected-device;
     in-out property <string> selected-model;
+    in-out property <int> selected-size-gib;
+    in-out property <string> selected-serial;
     in-out property <string> disk-mode: "erase";
     in-out property <bool> secure-boot-enroll;
     in-out property <string> full-name;
@@ -50,19 +65,36 @@ export component AppWindow inherits Window {
     in-out property <string> hostname;
     in-out property <string> password;
     in-out property <bool> autologin;
+    in-out property <bool> autologin-option: true;
+    in-out property <string> summary-problems;
 
-    // Set once Install is confirmed on the Summary screen.
-    in-out property <string> plan-json;
-    in-out property <string> install-step: "Starting install…";
-    in-out property <float> install-progress: 0;
+    // The install, as the backend reports it.
+    in-out property <int> install-step-number;
+    in-out property <string> install-step-name;
+    in-out property <float> install-progress;
+    in property <[string]> install-log;
+    in-out property <bool> show-install-log;
+    in-out property <int> error-step;
+    in-out property <string> error-message;
+    in-out property <string> error-log;
+    in-out property <bool> error-offline-fallback;
+    in-out property <string> saved-log-path;
+    in-out property <string> save-log-error;
+    in-out property <string> restart-error;
 
     callback full-name-edited(string);
     callback username-edited(string);
     callback hostname-edited(string);
+    callback wifi-rescan();
+    callback wifi-join();
     callback install-confirmed();
+    callback retry-install();
+    callback install-offline();
+    callback save-log();
+    callback restart-requested();
     callback quit-requested();
 
-    function go-next() {
+    public function go-next() {
         if (current-screen == 0) {
             current-screen = is-offline ? 1 : 2;
         } else if (current-screen == 1) {
@@ -85,17 +117,25 @@ export component AppWindow inherits Window {
     if current-screen == 0: WelcomeScreen {
         locale <=> root.locale;
         is-uefi: root.is-uefi;
+        probing: root.probing;
+        probe-error: root.probe-error;
         try-live-session => { root.quit-requested(); }
         install => { root.go-next(); }
     }
 
     if current-screen == 1: NetworkScreen {
-        network-name <=> root.network-name;
-        network-password <=> root.network-password;
+        networks: root.wifi-networks;
+        wifi-available: root.wifi-available;
+        busy: root.wifi-busy;
+        status: root.wifi-status;
+        status-detail: root.wifi-status-detail;
+        selected-ssid <=> root.selected-ssid;
+        password <=> root.wifi-password;
         back => { root.go-back(); }
-        join => { root.go-next(); }
+        rescan => { root.wifi-rescan(); }
+        join => { root.wifi-join(); }
         skip => {
-            root.network-name = "";
+            root.network-profile = "";
             root.go-next();
         }
     }
@@ -118,6 +158,8 @@ export component AppWindow inherits Window {
         disks: root.disks;
         selected-device <=> root.selected-device;
         selected-model <=> root.selected-model;
+        selected-size-gib <=> root.selected-size-gib;
+        selected-serial <=> root.selected-serial;
         mode <=> root.disk-mode;
         is-setup-mode: root.is-setup-mode;
         secure-boot-enroll <=> root.secure-boot-enroll;
@@ -131,6 +173,7 @@ export component AppWindow inherits Window {
         hostname <=> root.hostname;
         password <=> root.password;
         autologin <=> root.autologin;
+        autologin-option: root.autologin-option;
         full-name-edited(text) => { root.full-name-edited(text); }
         username-edited(text) => { root.username-edited(text); }
         hostname-edited(text) => { root.hostname-edited(text); }
@@ -144,29 +187,49 @@ export component AppWindow inherits Window {
         kb-variant: root.kb-variant;
         timezone: root.timezone;
         disk-model: root.selected-model;
+        disk-size-gib: root.selected-size-gib;
+        disk-serial: root.selected-serial;
         disk-device: root.selected-device;
         is-offline: root.is-offline;
-        network-name: root.network-name;
+        network-profile: root.network-profile;
         full-name: root.full-name;
         username: root.username;
         hostname: root.hostname;
-        autologin: root.autologin;
+        autologin: root.autologin && root.autologin-option;
         secure-boot-enroll: root.secure-boot-enroll;
-        back => { root.go-back(); }
-        confirm => {
-            root.current-screen = 7;
-            root.install-confirmed();
+        problems: root.summary-problems;
+        back => {
+            root.summary-problems = "";
+            root.go-back();
         }
+        confirm => { root.install-confirmed(); }
     }
 
     if current-screen == 7: InstallingScreen {
-        current-step: root.install-step;
+        step-number: root.install-step-number;
+        step-name: root.install-step-name;
         progress: root.install-progress;
+        log-lines: root.install-log;
+        show-log <=> root.show-install-log;
     }
 
     if current-screen == 8: DoneScreen {
         secure-boot-enroll: root.secure-boot-enroll;
-        restart => { root.quit-requested(); }
+        restart-error: root.restart-error;
+        restart => { root.restart-requested(); }
         keep-live-session => { root.quit-requested(); }
+    }
+
+    if current-screen == 9: ErrorScreen {
+        step: root.error-step;
+        message: root.error-message;
+        log-tail: root.error-log;
+        offline-fallback: root.error-offline-fallback;
+        saved-log-path: root.saved-log-path;
+        save-log-error: root.save-log-error;
+        retry => { root.retry-install(); }
+        install-offline => { root.install-offline(); }
+        save-log => { root.save-log(); }
+        quit => { root.quit-requested(); }
     }
 }
