@@ -19,10 +19,11 @@
 mod driver;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use driver::{Answers, Network, click, expect_screen, fill_to_summary, wait_for_outcome};
+use frontend::live_session::{LiveKeyboard, NoLiveKeyboard};
 use frontend::mock_backend::{self, MockBackend, MockWifi};
 use frontend::{AppWindow, Services, build_ui};
 use plan::Source;
@@ -44,6 +45,13 @@ fn log_dir() -> PathBuf {
 }
 
 fn start(backend: &Arc<MockBackend>) -> Result<AppWindow, String> {
+    start_with(backend, Arc::new(NoLiveKeyboard))
+}
+
+fn start_with(
+    backend: &Arc<MockBackend>,
+    live_keyboard: Arc<dyn LiveKeyboard>,
+) -> Result<AppWindow, String> {
     let config = InstallerConfig::builtin_default().map_err(|err| err.to_string())?;
     build_ui(
         &config,
@@ -52,9 +60,37 @@ fn start(backend: &Arc<MockBackend>) -> Result<AppWindow, String> {
             wifi: Arc::new(MockWifi),
             save_log_dir: log_dir(),
             data_files: driver::fixture_data_files(),
+            live_keyboard,
         },
     )
     .map_err(|err| err.to_string())
+}
+
+/// Stands in for the live Hyprland session: records every switch, and
+/// can refuse them.
+#[derive(Default)]
+struct RecordingKeyboard {
+    switches: Mutex<Vec<(String, String)>>,
+    refuse: bool,
+}
+
+impl RecordingKeyboard {
+    fn last(&self) -> Option<(String, String)> {
+        self.switches.lock().ok()?.last().cloned()
+    }
+}
+
+impl LiveKeyboard for RecordingKeyboard {
+    fn switch(&self, layout: &str, variant: &str) -> Result<(), String> {
+        if let Ok(mut switches) = self.switches.lock() {
+            switches.push((layout.to_string(), variant.to_string()));
+        }
+        if self.refuse {
+            Err("no session to switch".to_string())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 const OUTCOME: Duration = Duration::from_secs(10);
@@ -224,6 +260,47 @@ async fn a_language_preselects_its_keyboard_and_timezone() -> Result<(), String>
     Ok(())
 }
 
+/// The Keyboard screen switches the live session to the layout shown,
+/// and to each one picked (decided with the user), so the preview field
+/// and the password type in it.
+async fn the_keyboard_screen_switches_the_live_session() -> Result<(), String> {
+    let keyboard = Arc::new(RecordingKeyboard::default());
+    let app = start_with(&Arc::new(MockBackend::new()), keyboard.clone())?;
+    driver::wait_until("the probes", OUTCOME, || !app.get_probing()).await?;
+    assert_eq!(
+        keyboard.last(),
+        None,
+        "picking a language switches nothing yet"
+    );
+    click(&app, "Install")?;
+    expect_screen(&app, driver::KEYBOARD)?;
+    driver::wait_until("the switch to the layout shown", OUTCOME, || {
+        keyboard.last() == Some(("us".to_string(), String::new()))
+    })
+    .await?;
+    driver::pick(&app, "Search keyboard layouts", "de(nodeadkeys)", |app| {
+        app.get_keyboard_choices()
+    })?;
+    driver::wait_until("the switch to the layout picked", OUTCOME, || {
+        keyboard.last() == Some(("de".to_string(), "nodeadkeys".to_string()))
+    })
+    .await?;
+    assert_eq!(app.get_keyboard_switch_error(), "");
+
+    // A session that can't be switched says so on the screen.
+    let refusing = Arc::new(RecordingKeyboard {
+        refuse: true,
+        ..RecordingKeyboard::default()
+    });
+    let app = start_with(&Arc::new(MockBackend::new()), refusing)?;
+    driver::wait_until("the probes", OUTCOME, || !app.get_probing()).await?;
+    click(&app, "Install")?;
+    driver::wait_until("the error", OUTCOME, || {
+        !app.get_keyboard_switch_error().is_empty()
+    })
+    .await
+}
+
 async fn an_unavailable_disk_cant_be_picked() -> Result<(), String> {
     let backend = Arc::new(MockBackend::new());
     let app = start(&backend)?;
@@ -245,6 +322,7 @@ fn clickthrough() {
         a_failed_install_shows_the_error_screen_with_its_log().await?;
         secure_boot_is_offered_in_setup_mode().await?;
         a_language_preselects_its_keyboard_and_timezone().await?;
+        the_keyboard_screen_switches_the_live_session().await?;
         an_unavailable_disk_cant_be_picked().await?;
         Ok(())
     })

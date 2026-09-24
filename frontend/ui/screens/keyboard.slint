@@ -5,8 +5,9 @@ import { Choice, ChoiceList } from "../choice-list.slint";
 
 // SPEC.md: "Layout and variant | Live preview field". Every XKB layout
 // and variant is one entry of the list, pre-selected from the language
-// on the Welcome screen. The preview field types in the live session's
-// own layout: Dawn doesn't switch it (DECISIONS.md, M4).
+// on the Welcome screen. Rust switches the live session to the layout
+// this screen shows, and to each one picked, so the preview field (and
+// the password, later) types in it (DECISIONS.md, M4 follow-ups).
 export component KeyboardScreen inherits VerticalLayout {
     in property <[Choice]> keyboards;
     // The picked keyboard as XKB writes it, `de` or `de(nodeadkeys)`,
@@ -15,6 +16,8 @@ export component KeyboardScreen inherits VerticalLayout {
     in property <string> keyboard-label;
     in-out property <string> keyboard-query;
     in-out property <string> preview-text;
+    // Why the live session couldn't be switched; empty when it was.
+    in property <string> switch-error;
 
     callback keyboard-query-edited(string);
     callback keyboard-picked(Choice);
@@ -44,6 +47,11 @@ export component KeyboardScreen inherits VerticalLayout {
     LineEdit {
         text <=> preview-text;
         placeholder-text: @tr("Type here to check your keyboard");
+    }
+    if switch-error != "": Text {
+        text: @tr("This session's keyboard couldn't be switched, so typing here may not match: {}", switch-error);
+        wrap: word-wrap;
+        color: #888888;
     }
 
     HorizontalLayout {

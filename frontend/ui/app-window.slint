@@ -60,6 +60,8 @@ export component AppWindow inherits Window {
     in property <[Choice]> keyboard-choices;
     in-out property <string> keyboard-query;
     in-out property <string> keyboard-label: "us";
+    // Why the live session's keyboard couldn't be switched to it.
+    in-out property <string> keyboard-switch-error;
     in property <[Choice]> timezone-choices;
     in-out property <string> timezone-query;
     in-out property <string> timezone-label;
@@ -100,6 +102,7 @@ export component AppWindow inherits Window {
 
     callback locale-query-edited(string);
     callback locale-picked(Choice);
+    callback keyboard-shown();
     callback keyboard-query-edited(string);
     callback keyboard-picked(Choice);
     callback timezone-query-edited(string);
@@ -115,6 +118,15 @@ export component AppWindow inherits Window {
     callback save-log();
     callback restart-requested();
     callback quit-requested();
+
+    // Reaching the Keyboard screen switches the live session to the
+    // layout it shows: from the event loop, whether or not a frame has
+    // been drawn yet.
+    changed current-screen => {
+        if (current-screen == 2) {
+            root.keyboard-shown();
+        }
+    }
 
     public function go-next() {
         if (current-screen == 0) {
@@ -174,6 +186,7 @@ export component AppWindow inherits Window {
         keyboard-query <=> root.keyboard-query;
         keyboard-query-edited(text) => { root.keyboard-query-edited(text); }
         keyboard-picked(choice) => { root.keyboard-picked(choice); }
+        switch-error: root.keyboard-switch-error;
         preview-text <=> root.kb-preview;
         back => { root.go-back(); }
         next => { root.go-next(); }

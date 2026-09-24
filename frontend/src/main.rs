@@ -11,6 +11,7 @@ use slint::ComponentHandle;
 
 use frontend::backend::{BackendCommand, SocketBackend};
 use frontend::data::DataFiles;
+use frontend::live_session::{Hyprland, LiveKeyboard, NoLiveKeyboard};
 use frontend::mock_backend::{MockBackend, MockWifi};
 use frontend::wifi::NetworkManager;
 use frontend::{Services, build_ui, home_dir, load_config};
@@ -30,6 +31,15 @@ struct Cli {
     mock_backend: bool,
 }
 
+/// The Hyprland session Dawn runs in, if it runs in one; otherwise
+/// nothing to switch.
+fn live_keyboard() -> Arc<dyn LiveKeyboard> {
+    match Hyprland::from_env() {
+        Some(hyprland) => Arc::new(hyprland),
+        None => Arc::new(NoLiveKeyboard),
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -47,6 +57,7 @@ fn main() -> ExitCode {
             wifi: Arc::new(MockWifi),
             save_log_dir: home_dir(),
             data_files: DataFiles::system(),
+            live_keyboard: live_keyboard(),
         }
     } else {
         Services {
@@ -57,6 +68,7 @@ fn main() -> ExitCode {
             wifi: Arc::new(NetworkManager::new()),
             save_log_dir: home_dir(),
             data_files: DataFiles::system(),
+            live_keyboard: live_keyboard(),
         }
     };
 

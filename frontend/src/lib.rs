@@ -15,6 +15,7 @@
 pub mod backend;
 pub mod branding;
 pub mod data;
+pub mod live_session;
 pub mod mock_backend;
 pub mod state;
 pub mod system;
@@ -32,6 +33,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use backend::{Backend, EventSink};
 use data::{Data, DataFiles};
+use live_session::LiveKeyboard;
 use wifi::{ConnectError, Wifi};
 
 slint::include_modules!();
@@ -55,6 +57,8 @@ pub struct Services {
     pub save_log_dir: PathBuf,
     /// Where the language, keyboard and timezone lists come from.
     pub data_files: DataFiles,
+    /// The session Dawn runs in, switched to the keyboard layout picked.
+    pub live_keyboard: Arc<dyn LiveKeyboard>,
 }
 
 /// The live user's home directory, where Save log puts the log.
@@ -123,7 +127,7 @@ pub fn build_ui(
 
     let session = Arc::new(Mutex::new(Session::default()));
     let lists = Arc::new(Mutex::new(Lists::default()));
-    wire_lists(&app, &lists);
+    wire_lists(&app, &lists, &services);
     wire_account_derivation(&app);
     wire_wifi(&app, &services);
     wire_install(&app, &services, &session, config.source.packages.clone());
@@ -278,8 +282,27 @@ fn show_timezone(app: &AppWindow, data: &Data, value: &str) {
     app.set_timezone_label(Data::label(&data.timezones, value).unwrap_or(value).into());
 }
 
+/// Switches the live session to the keyboard picked, so the preview field
+/// and everything typed after it use the layout being installed. Off the
+/// UI thread: Hyprland could be slow to answer.
+fn switch_live_keyboard(app: &AppWindow, live_keyboard: &Arc<dyn LiveKeyboard>) {
+    let layout = app.get_kb_layout().to_string();
+    let variant = app.get_kb_variant().to_string();
+    let weak = app.as_weak();
+    let live_keyboard = Arc::clone(live_keyboard);
+    std::thread::spawn(move || {
+        let error = live_keyboard
+            .switch(&layout, &variant)
+            .err()
+            .unwrap_or_default();
+        let _ = weak.upgrade_in_event_loop(move |app| {
+            app.set_keyboard_switch_error(error.into());
+        });
+    });
+}
+
 /// Searching and picking on the Welcome, Keyboard and Timezone screens.
-fn wire_lists(app: &AppWindow, lists: &Arc<Mutex<Lists>>) {
+fn wire_lists(app: &AppWindow, lists: &Arc<Mutex<Lists>>, services: &Services) {
     app.on_locale_query_edited({
         let weak = app.as_weak();
         let lists = Arc::clone(lists);
@@ -311,10 +334,23 @@ fn wire_lists(app: &AppWindow, lists: &Arc<Mutex<Lists>>) {
     app.on_keyboard_picked({
         let weak = app.as_weak();
         let lists = Arc::clone(lists);
+        let live_keyboard = Arc::clone(&services.live_keyboard);
         move |choice| {
             if let (Some(app), Ok(mut lists)) = (weak.upgrade(), lists.lock()) {
                 lists.keyboard_picked = true;
                 show_keyboard(&app, &lists.data, &choice.value);
+                switch_live_keyboard(&app, &live_keyboard);
+            }
+        }
+    });
+    // The layout pre-selected from the language takes effect once the
+    // Keyboard screen shows it, not while the language is being picked.
+    app.on_keyboard_shown({
+        let weak = app.as_weak();
+        let live_keyboard = Arc::clone(&services.live_keyboard);
+        move || {
+            if let Some(app) = weak.upgrade() {
+                switch_live_keyboard(&app, &live_keyboard);
             }
         }
     });
