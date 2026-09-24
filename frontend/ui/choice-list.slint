@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { LineEdit, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// One entry of a searchable list: what goes into the plan, what the list
+// shows, and a dimmer second column.
+export struct Choice {
+    value: string,
+    label: string,
+    detail: string,
+}
+
+// A search field over a list, for the languages, keyboard layouts and
+// timezones the Welcome, Keyboard and Timezone screens pick from. Rust
+// does the searching: `query-edited` hands it the text, and it sets
+// `choices` to the entries that match.
+export component ChoiceList inherits VerticalLayout {
+    in property <[Choice]> choices;
+    // The picked entry's value.
+    in property <string> selected;
+    // The search field's placeholder, and its accessible label.
+    in property <string> search-label;
+    in-out property <string> query;
+
+    callback query-edited(string);
+    callback picked(Choice);
+
+    spacing: 8px;
+
+    LineEdit {
+        text <=> root.query;
+        placeholder-text: root.search-label;
+        accessible-label: root.search-label;
+        edited(text) => { root.query-edited(text); }
+    }
+
+    ListView {
+        vertical-stretch: 1;
+        min-height: 120px;
+        for choice in root.choices: Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: choice.value == root.selected
+                ? Theme.accent.with-alpha(0.14)
+                : touch.has-hover ? #00000008 : transparent;
+            accessible-role: list-item;
+            accessible-label: choice.label;
+            accessible-description: choice.detail;
+            accessible-item-selectable: true;
+            accessible-item-selected: choice.value == root.selected;
+            accessible-action-default => { root.picked(choice); }
+            touch := TouchArea {
+                clicked => { root.picked(choice); }
+            }
+            // The row speaks for both texts, so they stay out of the
+            // accessibility tree, where they'd repeat its label.
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                Text {
+                    text: choice.label;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                    accessible-role: none;
+                    accessible-label: "";
+                }
+                Text {
+                    text: choice.detail;
+                    vertical-alignment: center;
+                    color: #888888;
+                    accessible-role: none;
+                    accessible-label: "";
+                }
+            }
+        }
+    }
+}

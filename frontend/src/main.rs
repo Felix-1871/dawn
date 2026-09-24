@@ -10,6 +10,7 @@ use clap::Parser;
 use slint::ComponentHandle;
 
 use frontend::backend::{BackendCommand, SocketBackend};
+use frontend::data::DataFiles;
 use frontend::mock_backend::{MockBackend, MockWifi};
 use frontend::wifi::NetworkManager;
 use frontend::{Services, build_ui, home_dir, load_config};
@@ -45,6 +46,7 @@ fn main() -> ExitCode {
             backend: Arc::new(MockBackend::new().offline()),
             wifi: Arc::new(MockWifi),
             save_log_dir: home_dir(),
+            data_files: DataFiles::system(),
         }
     } else {
         Services {
@@ -54,6 +56,7 @@ fn main() -> ExitCode {
             ))),
             wifi: Arc::new(NetworkManager::new()),
             save_log_dir: home_dir(),
+            data_files: DataFiles::system(),
         }
     };
 

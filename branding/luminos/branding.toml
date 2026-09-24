@@ -9,3 +9,6 @@ version_string = "1.0"
 accent_color = "#5b8dee"
 website = "https://github.com/Lumin-OS/LuminOS"
 support_url = "https://github.com/Lumin-OS/LuminOS/issues"
+# The sbctl steps for setting up Secure Boot after installing, which the
+# Done screen shows when the firmware wasn't in Setup Mode.
+secure_boot_url = "https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot#Assisted_process_with_sbctl"

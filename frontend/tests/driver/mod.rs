@@ -8,9 +8,9 @@
 //! backend) and `examples/gui_driver.rs` (the real backend, inside the
 //! e2e test VM).
 //!
-//! ComboBox-backed fields (locale, keyboard layout, timezone) are set
-//! through their properties: std-widgets' ComboBox has no accessible
-//! set-value action (DECISIONS.md, M2).
+//! Search fields are typed into through their accessible set-value
+//! action, which is how a screen reader types, and fires the same
+//! `edited` a keyboard does.
 
 // Each includer uses a different part of this.
 #![allow(dead_code)]
@@ -18,9 +18,10 @@
 use std::future::Future;
 use std::time::{Duration, Instant};
 
-use frontend::{AppWindow, Theme};
+use frontend::data::{DataFiles, keyboard_value};
+use frontend::{AppWindow, Choice, Theme};
 use i_slint_backend_testing::ElementHandle;
-use slint::{ComponentHandle as _, Model};
+use slint::{ComponentHandle as _, Model, ModelRc};
 
 pub const WELCOME: i32 = 0;
 pub const NETWORK: i32 = 1;
@@ -104,6 +105,42 @@ pub fn click(app: &AppWindow, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Types `text` into the one field labelled `label`, the way a screen
+/// reader sets a value.
+pub fn type_into(app: &AppWindow, label: &str, text: &str) -> Result<(), String> {
+    let mut matches = ElementHandle::find_by_accessible_label(app, label);
+    let field = matches
+        .next()
+        .ok_or_else(|| format!("no field labelled {label:?}"))?;
+    if matches.next().is_some() {
+        return Err(format!("more than one field labelled {label:?}"));
+    }
+    field.set_accessible_value(text);
+    Ok(())
+}
+
+/// Searches a list for `value`, what the entry puts into the plan, and
+/// clicks that entry by whatever the list calls it. An exact match is
+/// the first a search shows, so its row is one the list has made; a
+/// list only makes the rows it shows.
+pub fn pick(
+    app: &AppWindow,
+    search: &str,
+    value: &str,
+    choices: impl Fn(&AppWindow) -> ModelRc<Choice>,
+) -> Result<(), String> {
+    type_into(app, search, value)?;
+    let label = choices(app)
+        .iter()
+        .find(|choice| choice.value == value)
+        .map(|choice| choice.label.to_string())
+        .ok_or_else(|| {
+            let found: Vec<String> = choices(app).iter().map(|c| c.value.to_string()).collect();
+            format!("searching for {value:?} found {found:?}")
+        })?;
+    click(app, &label)
+}
+
 pub fn expect_screen(app: &AppWindow, screen: i32) -> Result<(), String> {
     let current = app.get_current_screen();
     if current == screen {
@@ -125,6 +162,9 @@ pub enum Network {
 
 /// The answers tests/plans/erase-online.json was written from.
 pub struct Answers {
+    pub locale: &'static str,
+    /// As XKB writes it: `us`, or `de(nodeadkeys)` for a variant.
+    pub keyboard: &'static str,
     pub timezone: &'static str,
     pub full_name: &'static str,
     pub username: &'static str,
@@ -140,6 +180,8 @@ pub struct Answers {
 impl Answers {
     pub fn fixture(disk: impl Into<String>) -> Self {
         Self {
+            locale: "en_US.UTF-8",
+            keyboard: "us",
             timezone: "Europe/Berlin",
             full_name: "Ada Lovelace",
             username: "ada",
@@ -167,6 +209,16 @@ pub async fn fill_to_summary(
     if !probe_error.is_empty() {
         return Err(format!("the probes failed: {probe_error}"));
     }
+    pick(app, "Search languages", answers.locale, |app| {
+        app.get_locale_choices()
+    })?;
+    if app.get_locale() != answers.locale {
+        return Err(format!(
+            "picking {} chose {}",
+            answers.locale,
+            app.get_locale()
+        ));
+    }
     click(app, "Install")?;
 
     match network {
@@ -193,12 +245,29 @@ pub async fn fill_to_summary(
     }
 
     expect_screen(app, KEYBOARD)?;
-    app.set_kb_layout("us".into());
-    app.set_kb_variant("".into());
+    pick(app, "Search keyboard layouts", answers.keyboard, |app| {
+        app.get_keyboard_choices()
+    })?;
+    let picked = keyboard_value(&app.get_kb_layout(), &app.get_kb_variant());
+    if picked != answers.keyboard {
+        return Err(format!("picking {} chose {picked}", answers.keyboard));
+    }
     click(app, "Next")?;
 
     expect_screen(app, TIMEZONE)?;
-    app.set_timezone(answers.timezone.into());
+    pick(
+        app,
+        "Search cities, regions or countries",
+        answers.timezone,
+        |app| app.get_timezone_choices(),
+    )?;
+    if app.get_timezone() != answers.timezone {
+        return Err(format!(
+            "picking {} chose {}",
+            answers.timezone,
+            app.get_timezone()
+        ));
+    }
     click(app, "Next")?;
 
     expect_screen(app, DISK)?;
@@ -270,4 +339,54 @@ pub fn describe_error(app: &AppWindow) -> String {
         app.get_error_message(),
         app.get_error_log()
     )
+}
+
+/// Small copies of the system files the language, keyboard and timezone
+/// lists come from, so the UI tests don't depend on the machine's own.
+pub fn fixture_data_files() -> DataFiles {
+    let dir = std::env::temp_dir().join(format!("dawn-ui-data-{}", std::process::id()));
+    let files: &[(&str, &str)] = &[
+        (
+            "SUPPORTED",
+            "de_DE.UTF-8 UTF-8\nde_DE ISO-8859-1\nen_US.UTF-8 UTF-8\n",
+        ),
+        (
+            "locales/de_DE",
+            "language \"German\"\nterritory \"Germany\"\n",
+        ),
+        // glibc's own name for it.
+        (
+            "locales/en_US",
+            "language \"American English\"\nterritory \"United States\"\n",
+        ),
+        (
+            "evdev.lst",
+            "! layout\n  us  English (US)\n  de  German\n  gb  English (UK)\n\
+             ! variant\n  nodeadkeys  de: German (no dead keys)\n  intl  us: English (US, intl., with dead keys)\n",
+        ),
+        (
+            "kbd-model-map",
+            "de\tde\tpc105\t-\tterminate:ctrl_alt_bksp\tde-DE,de\n\
+             us\tus\tpc105+inet\t-\tterminate:ctrl_alt_bksp\ten-US,en\n",
+        ),
+        (
+            "zone.tab",
+            "DE\t+5230+01322\tEurope/Berlin\tmost of Germany\n\
+             US\t+404251-0740023\tAmerica/New_York\tEastern (most areas)\n",
+        ),
+        ("iso3166.tab", "DE\tGermany\nUS\tUnited States\n"),
+    ];
+    for (name, content) in files {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().expect("a parent directory")).expect("a temp dir");
+        std::fs::write(&path, content).expect("a temp file");
+    }
+    DataFiles {
+        supported_locales: dir.join("SUPPORTED"),
+        locale_sources: dir.join("locales"),
+        xkb_rules: dir.join("evdev.lst"),
+        kbd_model_map: dir.join("kbd-model-map"),
+        zone_tab: dir.join("zone.tab"),
+        iso3166_tab: dir.join("iso3166.tab"),
+    }
 }

@@ -1,58 +1,72 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Button, ComboBox } from "std-widgets.slint";
+import { Button } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { Choice, ChoiceList } from "../choice-list.slint";
 
 // SPEC.md user flow: "Offers 'Try live session' and 'Install'; blocks
 // Install when not booted in UEFI mode and explains how to switch."
 // Install also waits for the backend's probes (firmware, disks, whether
-// the PC is online), which decide what the next screens show.
+// the PC is online), which decide what the next screens show. The
+// language is the new system's (Dawn's own UI is English in v1); picking
+// one also pre-selects the keyboard and timezone.
 export component WelcomeScreen inherits VerticalLayout {
-    in-out property <string> locale;
+    in property <[Choice]> locales;
+    // The picked locale's name, and how the list shows it.
+    in property <string> locale;
+    in property <string> locale-label;
+    in-out property <string> locale-query;
     in property <bool> is-uefi;
     in property <bool> probing;
     in property <string> probe-error;
 
+    callback locale-query-edited(string);
+    callback locale-picked(Choice);
     callback try-live-session();
     callback install();
 
     padding: 32px;
-    spacing: 20px;
-    alignment: center;
-
-    Image {
-        source: Theme.logo;
-        height: 72px;
-        horizontal-alignment: center;
-    }
-
-    Text {
-        text: Theme.product-name;
-        font-size: 28px;
-        font-weight: 700;
-        horizontal-alignment: center;
-    }
-
-    Text {
-        text: Theme.welcome-text;
-        wrap: word-wrap;
-        horizontal-alignment: center;
-    }
+    spacing: 14px;
 
     HorizontalLayout {
-        spacing: 12px;
-        alignment: center;
-        Text { text: @tr("Language"); vertical-alignment: center; }
-        ComboBox {
-            model: ["en_US.UTF-8"];
-            current-value: locale;
-            selected(value) => { locale = value; }
+        spacing: 16px;
+        Image {
+            source: Theme.logo;
+            width: 56px;
+            height: 56px;
         }
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            Text {
+                text: Theme.product-name;
+                font-size: 26px;
+                font-weight: 700;
+            }
+            Text {
+                text: Theme.welcome-text;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    Text {
+        text: @tr("Language: {}", locale-label);
+        font-weight: 600;
+    }
+
+    ChoiceList {
+        vertical-stretch: 1;
+        choices: root.locales;
+        selected: root.locale;
+        search-label: @tr("Search languages");
+        query <=> root.locale-query;
+        query-edited(text) => { root.locale-query-edited(text); }
+        picked(choice) => { root.locale-picked(choice); }
     }
 
     if probing: Text {
         text: @tr("Checking this PC…");
-        horizontal-alignment: center;
         color: #888888;
     }
 
@@ -60,23 +74,21 @@ export component WelcomeScreen inherits VerticalLayout {
         text: @tr("Couldn't check this PC: {}", probe-error);
         wrap: word-wrap;
         color: #d9534f;
-        horizontal-alignment: center;
     }
 
     if !probing && !is-uefi: Text {
         text: @tr("This PC did not boot in UEFI mode. Restart and switch the firmware to UEFI to install — the live session still works without it.");
         wrap: word-wrap;
         color: #d9534f;
-        horizontal-alignment: center;
     }
 
     HorizontalLayout {
         spacing: 12px;
-        alignment: center;
         Button {
             text: @tr("Try live session");
             clicked => { try-live-session(); }
         }
+        Rectangle { horizontal-stretch: 1; }
         Button {
             text: @tr("Install");
             primary: true;

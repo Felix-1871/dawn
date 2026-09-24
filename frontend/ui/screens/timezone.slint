@@ -1,32 +1,41 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Button, ComboBox } from "std-widgets.slint";
+import { Button } from "std-widgets.slint";
+import { Choice, ChoiceList } from "../choice-list.slint";
 
 // SPEC.md: "Region and city | Searchable list, guessed from the chosen
-// locale." A fixed representative list stands in until M4's timezone
-// data lands.
+// locale." Every zone in tzdata, searchable by region, city or country,
+// plus UTC.
 export component TimezoneScreen inherits VerticalLayout {
-    in-out property <string> timezone;
+    in property <[Choice]> timezones;
+    // The picked zone (`Europe/Berlin`), and how the list shows it.
+    in property <string> timezone;
+    in property <string> timezone-label;
+    in-out property <string> timezone-query;
 
+    callback timezone-query-edited(string);
+    callback timezone-picked(Choice);
     callback back();
     callback next();
 
     padding: 32px;
-    spacing: 16px;
+    spacing: 14px;
 
     Text { text: @tr("Timezone"); font-size: 22px; font-weight: 700; }
-    Text { text: @tr("Region / City"); }
-    ComboBox {
-        model: [
-            "Europe/Berlin", "Europe/London", "Europe/Paris",
-            "America/New_York", "America/Los_Angeles", "America/Chicago",
-            "Asia/Tokyo", "Asia/Kolkata", "Australia/Sydney", "Etc/UTC",
-        ];
-        current-value: timezone;
-        selected(value) => { timezone = value; }
+    Text {
+        text: @tr("Timezone: {}", timezone-label);
+        font-weight: 600;
     }
 
-    Rectangle { vertical-stretch: 1; }
+    ChoiceList {
+        vertical-stretch: 1;
+        choices: root.timezones;
+        selected: root.timezone;
+        search-label: @tr("Search cities, regions or countries");
+        query <=> root.timezone-query;
+        query-edited(text) => { root.timezone-query-edited(text); }
+        picked(choice) => { root.timezone-picked(choice); }
+    }
 
     HorizontalLayout {
         spacing: 12px;

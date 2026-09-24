@@ -15,6 +15,11 @@ struct BrandingToml {
     accent_color: String,
     website: String,
     support_url: String,
+    /// Where the Done screen sends people whose firmware wasn't in Setup
+    /// Mode, to set up Secure Boot later (SPEC.md: "the Done screen links
+    /// to the sbctl steps for later").
+    #[serde(default)]
+    secure_boot_url: String,
 }
 
 pub struct Branding {
@@ -23,6 +28,7 @@ pub struct Branding {
     pub accent_color: slint::Color,
     pub website: String,
     pub support_url: String,
+    pub secure_boot_url: String,
     pub logo: slint::Image,
     pub icon: slint::Image,
     pub welcome_text: String,
@@ -74,6 +80,7 @@ pub fn load(dir: &Path) -> Result<Branding, String> {
         accent_color,
         website: parsed.website,
         support_url: parsed.support_url,
+        secure_boot_url: parsed.secure_boot_url,
         logo,
         icon,
         welcome_text,
