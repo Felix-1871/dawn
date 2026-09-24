@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The twelve-step install pipeline from SPEC.md "Install pipeline". This
-//! module builds the full command list for a validated plan; running any
-//! of it is the real runner's job (M1).
+//! module builds the full command list for a validated plan; running it
+//! is `install.rs`'s job.
 
-use plan::{DiskMode, InstallPlan, PartitionRole, Source};
+use plan::{DiskMode, InstallPlan, PartitionAssignment, PartitionRole, Source};
+use thiserror::Error;
 
 use crate::adapters::{Adapter, DiskLayout};
 use crate::runner::{Action, Capture, Invocation, Stdin};
@@ -15,16 +16,35 @@ pub const TARGET: &str = "/mnt/target";
 /// the target by step 12.
 pub const LOG_FILE: &str = "/var/log/dawn.log";
 
+/// The pacman config an online install uses: the live system's own,
+/// which includes the LuminOS repository (SPEC.md "LuminOS adapter").
+/// Step 1 checks its repositories are reachable, and step 5's pacstrap
+/// reads it.
+pub const PACMAN_CONF: &str = "/etc/pacman.conf";
+
 pub struct PipelineStep {
     pub number: u32,
     pub name: &'static str,
     pub actions: Vec<Action>,
 }
 
+/// A plan the pipeline can't be built from. Validation catches these
+/// first; this is what's left when a plan skipped it.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum PipelineError {
+    #[error("step {step}: manual mode needs a partitions list")]
+    MissingPartitions { step: u32 },
+    #[error("step {step}: manual mode needs a {role} partition")]
+    MissingPartition { step: u32, role: &'static str },
+}
+
 /// Builds the ordered list of steps for `plan`, delegating the
 /// distro-specific parts to `adapter`. Does not run anything.
-pub fn build(plan: &InstallPlan, adapter: &dyn Adapter) -> Vec<PipelineStep> {
-    let layout = disk_layout(plan);
+pub fn build(
+    plan: &InstallPlan,
+    adapter: &dyn Adapter,
+) -> Result<Vec<PipelineStep>, PipelineError> {
+    let layout = disk_layout(plan)?;
     let offline = matches!(plan.source, Source::Squashfs);
 
     let mut steps = vec![
@@ -41,12 +61,12 @@ pub fn build(plan: &InstallPlan, adapter: &dyn Adapter) -> Vec<PipelineStep> {
         PipelineStep {
             number: 3,
             name: "Format and create btrfs subvolumes",
-            actions: step3_format(plan, &layout),
+            actions: step3_format(plan, &layout)?,
         },
         PipelineStep {
             number: 4,
             name: "Mount the target",
-            actions: step4_mount(plan, &layout),
+            actions: step4_mount(plan, &layout)?,
         },
         PipelineStep {
             number: 5,
@@ -98,44 +118,49 @@ pub fn build(plan: &InstallPlan, adapter: &dyn Adapter) -> Vec<PipelineStep> {
         actions: step12_finish(plan, &layout, adapter),
     });
 
-    steps
+    Ok(steps)
 }
 
-fn disk_layout(plan: &InstallPlan) -> DiskLayout {
+fn manual_partitions(
+    plan: &InstallPlan,
+    step: u32,
+) -> Result<&[PartitionAssignment], PipelineError> {
+    plan.disk
+        .partitions
+        .as_deref()
+        .ok_or(PipelineError::MissingPartitions { step })
+}
+
+fn disk_layout(plan: &InstallPlan) -> Result<DiskLayout, PipelineError> {
     let target = TARGET.to_string();
     match plan.disk.mode {
-        DiskMode::Erase => DiskLayout {
+        DiskMode::Erase => Ok(DiskLayout {
             target,
             esp_device: format!("{}-part1", plan.disk.device),
             root_device: format!("{}-part2", plan.disk.device),
             root_subvolume: Some("@".to_string()),
-        },
+        }),
         DiskMode::Manual => {
-            let partitions = plan
-                .disk
-                .partitions
-                .as_ref()
-                .expect("manual mode plans are validated to carry partitions");
-            let esp = partitions
-                .iter()
-                .find(|p| p.role == PartitionRole::Esp)
-                .expect("manual mode plans are validated to have exactly one ESP")
-                .device
-                .clone();
-            let root = partitions
-                .iter()
-                .find(|p| p.role == PartitionRole::Root)
-                .expect("manual mode plans are validated to have exactly one root")
-                .device
-                .clone();
+            // The layout is first needed by step 3.
+            let partitions = manual_partitions(plan, 3)?;
+            let find = |role, name| {
+                partitions
+                    .iter()
+                    .find(|p| p.role == role)
+                    .map(|p| p.device.clone())
+                    .ok_or(PipelineError::MissingPartition {
+                        step: 3,
+                        role: name,
+                    })
+            };
             // Manual mode mounts the root partition's top level at / in
             // step 4, not a subvolume.
-            DiskLayout {
+            Ok(DiskLayout {
                 target,
-                esp_device: esp,
-                root_device: root,
+                esp_device: find(PartitionRole::Esp, "ESP")?,
+                root_device: find(PartitionRole::Root, "root")?,
                 root_subvolume: None,
-            }
+            })
         }
     }
 }
@@ -150,7 +175,7 @@ fn arch_chroot(
 }
 
 fn step1_validate(plan: &InstallPlan) -> Vec<Action> {
-    vec![Action::Run(Invocation::new(
+    let mut actions = vec![Action::Run(Invocation::new(
         "lsblk",
         [
             "--json",
@@ -158,7 +183,13 @@ fn step1_validate(plan: &InstallPlan) -> Vec<Action> {
             "NAME,SIZE,MODEL,MOUNTPOINT",
             &plan.disk.device,
         ],
-    ))]
+    ))];
+    if plan.source == Source::Pacstrap {
+        actions.push(Action::CheckReposReachable {
+            pacman_conf: PACMAN_CONF.to_string(),
+        });
+    }
+    actions
 }
 
 fn step2_partition(plan: &InstallPlan) -> Vec<Action> {
@@ -194,9 +225,9 @@ fn udev_settle() -> Action {
     Action::Run(Invocation::new("udevadm", ["settle"]))
 }
 
-fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
+fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Result<Vec<Action>, PipelineError> {
     match plan.disk.mode {
-        DiskMode::Erase => vec![
+        DiskMode::Erase => Ok(vec![
             Action::Run(Invocation::new(
                 "mkfs.fat",
                 ["-F32", "-n", "ESP", &layout.esp_device],
@@ -219,13 +250,9 @@ fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                 ["subvolume", "create", &format!("{TARGET}/@home")],
             )),
             Action::Run(Invocation::new("umount", [TARGET])),
-        ],
+        ]),
         DiskMode::Manual => {
-            let partitions = plan
-                .disk
-                .partitions
-                .as_ref()
-                .expect("manual mode plans are validated to carry partitions");
+            let partitions = manual_partitions(plan, 3)?;
             let mut actions = Vec::new();
             for partition in partitions {
                 if !partition.format {
@@ -260,14 +287,14 @@ fn step3_format(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                     actions.push(Action::Run(Invocation::new("umount", [TARGET])));
                 }
             }
-            actions
+            Ok(actions)
         }
     }
 }
 
-fn step4_mount(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
+fn step4_mount(plan: &InstallPlan, layout: &DiskLayout) -> Result<Vec<Action>, PipelineError> {
     match plan.disk.mode {
-        DiskMode::Erase => vec![
+        DiskMode::Erase => Ok(vec![
             Action::Run(Invocation::new(
                 "mount",
                 ["-o", "subvol=@,compress=zstd", &layout.root_device, TARGET],
@@ -287,13 +314,9 @@ fn step4_mount(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                 "mount",
                 [layout.esp_device.as_str(), &format!("{TARGET}/boot")],
             )),
-        ],
+        ]),
         DiskMode::Manual => {
-            let partitions = plan
-                .disk
-                .partitions
-                .as_ref()
-                .expect("manual mode plans are validated to carry partitions");
+            let partitions = manual_partitions(plan, 4)?;
             // Root first, then everything else, so parent mount points exist.
             let mut ordered: Vec<_> = partitions.iter().collect();
             ordered.sort_by_key(|p| p.mount_point != "/");
@@ -306,7 +329,7 @@ fn step4_mount(plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action> {
                     [partition.device.as_str(), target_path.as_str()],
                 )));
             }
-            actions
+            Ok(actions)
         }
     }
 }
@@ -327,8 +350,17 @@ fn step7_system_config(
         },
         Action::Run(arch_chroot(layout, ["locale-gen"])),
         Action::WriteFile {
+            path: format!("{TARGET}/etc/locale.conf"),
+            content: format!("LANG={}\n", plan.locale),
+        },
+        Action::WriteFile {
             path: format!("{TARGET}/etc/vconsole.conf"),
             content: format!("KEYMAP={}\n", plan.keyboard.layout),
+        },
+        Action::Symlink {
+            root: TARGET.to_string(),
+            link: "/etc/localtime".to_string(),
+            points_to: format!("/usr/share/zoneinfo/{}", plan.timezone),
         },
         Action::WriteFile {
             path: format!("{TARGET}/etc/hostname"),
@@ -343,9 +375,14 @@ fn step7_system_config(
     actions.extend(adapter.keyboard_config(plan, layout));
 
     if let Some(profile) = &plan.network_profile {
+        // NetworkManager ignores a keyfile anyone but root can read, and
+        // the directory only exists if a package created it.
         actions.push(Action::Run(Invocation::new(
-            "cp",
+            "install",
             [
+                "-D".to_string(),
+                "-m".to_string(),
+                "600".to_string(),
                 format!("/etc/NetworkManager/system-connections/{profile}.nmconnection"),
                 format!("{TARGET}/etc/NetworkManager/system-connections/{profile}.nmconnection"),
             ],

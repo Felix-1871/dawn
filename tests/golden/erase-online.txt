@@ -1,6 +1,7 @@
 ==> Adapter: arch
 ==> Step 1: Validate plan and re-probe the disk
 lsblk --json -o NAME,SIZE,MODEL,MOUNTPOINT /dev/disk/by-id/nvme-EXAMPLE_SERIAL
+check the repositories in /etc/pacman.conf are reachable
 ==> Step 2: Partition the disk
 sfdisk --wipe always /dev/disk/by-id/nvme-EXAMPLE_SERIAL
     <<< label: gpt
@@ -29,8 +30,11 @@ gpgconf --homedir /mnt/target/etc/pacman.d/gnupg --kill all
 genfstab -U /mnt/target  # stdout appended to /mnt/target/etc/fstab
 uncomment "en_US.UTF-8 UTF-8" in /mnt/target/etc/locale.gen
 arch-chroot /mnt/target locale-gen
+write /mnt/target/etc/locale.conf
+    <<< LANG=en_US.UTF-8
 write /mnt/target/etc/vconsole.conf
     <<< KEYMAP=us
+symlink /mnt/target/etc/localtime -> /usr/share/zoneinfo/Europe/Berlin
 write /mnt/target/etc/hostname
     <<< ada-laptop
 write /mnt/target/etc/systemd/zram-generator.conf

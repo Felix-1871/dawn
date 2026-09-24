@@ -2,11 +2,14 @@
 
 //! Compares `dawn-backend --dry-run`'s command list against the checked-in
 //! golden files, for the online, offline and Secure Boot plan variants
-//! (see SPEC.md "Testing": "Dry-run snapshots"). Regenerate a golden file
-//! after an intentional pipeline change with:
+//! (see SPEC.md "Testing": "Dry-run snapshots"). The config is passed
+//! explicitly, so a machine with its own /etc/dawn/installer.toml gets
+//! the same output. Regenerate a golden file after an intentional
+//! pipeline change with:
 //!
 //! ```sh
-//! cargo run -p backend -- --dry-run tests/plans/<name>.json > tests/golden/<name>.txt
+//! cargo run -p backend -- --config config/installer.toml --dry-run \
+//!   tests/plans/<name>.json > tests/golden/<name>.txt
 //! ```
 
 use std::path::Path;
@@ -31,6 +34,8 @@ fn assert_matches_golden(name: &str) {
 
     Command::cargo_bin("dawn-backend")
         .unwrap()
+        .arg("--config")
+        .arg(workspace_root().join("config/installer.toml"))
         .arg("--dry-run")
         .arg(&plan_path)
         .assert()

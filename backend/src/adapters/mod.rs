@@ -36,8 +36,9 @@ pub trait Adapter {
     /// keyboard layout into the desktop's own config under `/etc/skel`.
     fn keyboard_config(&self, plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action>;
 
-    /// Step 8, the part that's distro-specific: which group grants sudo.
-    fn admin_group(&self) -> &'static str;
+    /// Step 8, the part that's distro-specific: which group grants sudo
+    /// (`installer.toml`'s `[defaults] admin_group`).
+    fn admin_group(&self) -> &str;
 
     /// Step 9: mkinitcpio presets and the UKIs they build.
     fn build_ukis(&self, plan: &InstallPlan, layout: &DiskLayout) -> Vec<Action>;

@@ -2,9 +2,12 @@
 
 //! The non-negotiable checks from CLAUDE.md's safety rules: a real run
 //! needs `--target` to match the plan's disk exactly, and refuses any
-//! disk that's mounted or holds the running system. Pure functions here
-//! so they're testable without real disks; `main.rs` wires them to
-//! `/proc/mounts` and `std::fs::canonicalize`.
+//! disk that's mounted or holds the running system. Also refused: the
+//! medium the live system booted from, even once archiso has copied it
+//! to RAM and unmounted it, and disks below `installer.toml`'s
+//! `min_disk_gib` (SPEC.md "Disk safety"). Pure functions here so
+//! they're testable without real disks; `live.rs` and `main.rs` wire
+//! them to `/proc`, `/sys` and `std::fs::canonicalize`.
 
 use thiserror::Error;
 
@@ -19,6 +22,71 @@ pub enum SafetyError {
     },
     #[error("{device} holds the running system's root filesystem")]
     DiskHoldsRunningSystem { device: String },
+    #[error("{device} is the medium the live system booted from")]
+    DiskIsBootMedium { device: String },
+    #[error("{device} is {size_gib} GiB; installing needs at least {min_gib} GiB")]
+    DiskTooSmall {
+        device: String,
+        size_gib: u64,
+        min_gib: u64,
+    },
+}
+
+const GIB: u64 = 1024 * 1024 * 1024;
+
+pub fn check_disk_size(device: &str, size_bytes: u64, min_gib: u64) -> Result<(), SafetyError> {
+    if size_bytes >= min_gib.saturating_mul(GIB) {
+        Ok(())
+    } else {
+        Err(SafetyError::DiskTooSmall {
+            device: device.to_string(),
+            size_gib: size_bytes / GIB,
+            min_gib,
+        })
+    }
+}
+
+/// Where the kernel command line says archiso's boot medium is, as a
+/// `/dev/...` path still to be resolved: `archisosearchuuid=` (what
+/// current releng boot entries use), `archisodevice=` (a path or a
+/// `UUID=`/`LABEL=`/`PARTUUID=` spec) or `archisolabel=`.
+pub fn boot_medium_path(cmdline: &str) -> Option<String> {
+    for param in cmdline.split_whitespace() {
+        if let Some(uuid) = param.strip_prefix("archisosearchuuid=") {
+            return Some(format!("/dev/disk/by-uuid/{uuid}"));
+        }
+        if let Some(device) = param.strip_prefix("archisodevice=") {
+            let path = if let Some(uuid) = device.strip_prefix("UUID=") {
+                format!("/dev/disk/by-uuid/{uuid}")
+            } else if let Some(label) = device.strip_prefix("LABEL=") {
+                format!("/dev/disk/by-label/{label}")
+            } else if let Some(partuuid) = device.strip_prefix("PARTUUID=") {
+                format!("/dev/disk/by-partuuid/{partuuid}")
+            } else {
+                device.to_string()
+            };
+            return Some(path);
+        }
+        if let Some(label) = param.strip_prefix("archisolabel=") {
+            return Some(format!("/dev/disk/by-label/{label}"));
+        }
+    }
+    None
+}
+
+/// `boot_medium_disk` is the whole disk the boot medium lives on, already
+/// resolved (see `live.rs`); `None` when the system didn't boot from an
+/// archiso medium at all.
+pub fn check_disk_not_boot_medium(
+    canonical_disk: &str,
+    boot_medium_disk: Option<&str>,
+) -> Result<(), SafetyError> {
+    match boot_medium_disk {
+        Some(medium) if medium == canonical_disk => Err(SafetyError::DiskIsBootMedium {
+            device: canonical_disk.to_string(),
+        }),
+        _ => Ok(()),
+    }
 }
 
 /// The plan names a disk by its `/dev/disk/by-id/...` path; `--target`
@@ -160,6 +228,60 @@ tmpfs /run tmpfs rw 0 0
         assert_eq!(
             running_system_device(proc_mounts),
             Some("/dev/nvme0n1p2".to_string())
+        );
+    }
+
+    #[test]
+    fn finds_the_boot_medium_from_current_releng_entries() {
+        let cmdline = "initrd=\\arch\\boot\\x86_64\\initramfs-linux.img archisobasedir=arch \
+                       archisosearchuuid=2026-09-24-10-29-24-00 copytoram=y";
+        assert_eq!(
+            boot_medium_path(cmdline),
+            Some("/dev/disk/by-uuid/2026-09-24-10-29-24-00".into())
+        );
+    }
+
+    #[test]
+    fn finds_the_boot_medium_from_older_parameters() {
+        assert_eq!(
+            boot_medium_path("archisobasedir=arch archisodevice=UUID=abcd-1234"),
+            Some("/dev/disk/by-uuid/abcd-1234".into())
+        );
+        assert_eq!(
+            boot_medium_path("archisodevice=/dev/sr0"),
+            Some("/dev/sr0".into())
+        );
+        assert_eq!(
+            boot_medium_path("archisolabel=LUMINOS_202609"),
+            Some("/dev/disk/by-label/LUMINOS_202609".into())
+        );
+    }
+
+    #[test]
+    fn a_normal_boot_has_no_boot_medium() {
+        assert_eq!(boot_medium_path("root=UUID=abcd rw quiet"), None);
+    }
+
+    #[test]
+    fn refuses_the_boot_medium() {
+        assert!(check_disk_not_boot_medium("/dev/sdb", Some("/dev/sdb")).is_err());
+        assert_eq!(
+            check_disk_not_boot_medium("/dev/vda", Some("/dev/sdb")),
+            Ok(())
+        );
+        assert_eq!(check_disk_not_boot_medium("/dev/vda", None), Ok(()));
+    }
+
+    #[test]
+    fn refuses_a_disk_below_the_minimum_size() {
+        assert_eq!(check_disk_size("/dev/vda", 32 * GIB, 32), Ok(()));
+        assert_eq!(
+            check_disk_size("/dev/vda", 20 * GIB, 32),
+            Err(SafetyError::DiskTooSmall {
+                device: "/dev/vda".into(),
+                size_gib: 20,
+                min_gib: 32,
+            })
         );
     }
 
