@@ -41,12 +41,13 @@ const LOGIN_MANAGER: &str = "greetd";
 /// written"). The HOOKS array that actually makes these UKIs
 /// systemd-based (base systemd autodetect microcode ... sd-vconsole ...)
 /// is luminos-base's own `/etc/mkinitcpio.conf`, not something Dawn picks
-/// per install — see DECISIONS.md.
+/// per install — see DECISIONS.md. Microcode comes from that `microcode`
+/// hook too: mkinitcpio now ignores a preset's `ALL_microcode`, with a
+/// deprecation warning pointing at the hook.
 fn mkinitcpio_preset() -> String {
     "# mkinitcpio preset for the linux package — built by dawn-backend\n\
      \n\
      ALL_kver=\"/boot/vmlinuz-linux\"\n\
-     ALL_microcode=(/boot/*-ucode.img)\n\
      \n\
      PRESETS=('default' 'fallback')\n\
      \n\
