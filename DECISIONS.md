@@ -4,6 +4,90 @@ Log of choices made during implementation where SPEC.md didn't spell out the
 answer, or where a concrete detail had to be picked to make code compile.
 Newest first.
 
+## M2
+
+- **The app_id Slint's winit backend sets is empty, so `build_ui()`
+  sets one explicitly: `luminos-dawn`.** SPEC.md asks M2 to confirm
+  this ("The Hyprland window rule matches a stable window title and
+  app_id; M2 confirms which app_id Slint's winit backend sets") —
+  running the built binary under this machine's actual Hyprland session
+  and checking `hyprctl clients` showed `class` came back empty. Fixed
+  with `slint::set_xdg_app_id("luminos-dawn")` right after
+  `AppWindow::new()`; confirmed by re-running and checking
+  `hyprctl clients` again, which now reports `class: luminos-dawn`.
+  M5's Hyprland window rule should match on this app_id, not the title
+  (which is branding-derived and not stable across branding folders).
+
+- **`frontend` is now a library plus a thin binary**, not just a binary.
+  `slint::include_modules!()` (the generated `AppWindow`, `DiskInfo`,
+  `Theme` types) lives in `src/lib.rs`; `src/main.rs` is just
+  `frontend::build_ui()?.run()`. Rust's integration tests
+  (`tests/clickthrough.rs`) only link a crate's library target, so the
+  UI smoke test couldn't otherwise reach the generated types at all.
+
+- **The UI smoke test drives Next/Back/Install by accessible label
+  (`i_slint_backend_testing::ElementHandle`), matching SPEC.md's own
+  description, but sets ComboBox-backed fields (locale, keyboard
+  layout, timezone) directly via generated property setters.**
+  std-widgets' `ComboBox` only implements `accessible-action-expand`,
+  not a set-value action the way `LineEdit`, `Button` and `CheckBox`
+  do, so there's no accessibility-level way to simulate "pick this
+  option" on it. SPEC.md calls out driving Next and Back specifically,
+  not every widget kind, so this reads as within scope rather than a
+  compromise. The full-name → username/hostname derivation is still
+  exercised for real, via `app.invoke_full_name_edited(...)`, which
+  runs the exact closure a real `LineEdit`'s `edited` callback would.
+  Requires `SLINT_EMIT_DEBUG_INFO`-equivalent debug info at build time
+  (`CompilerConfiguration::with_debug_info(true)` in `build.rs`) — the
+  `ElementHandle` API refuses to work without it.
+
+- **Disk selection is a hand-rolled clickable list (`Rectangle` +
+  `TouchArea` per row), not std-widgets' `RadioButton`.** Couldn't
+  confirm `RadioButton` is actually exported from `std-widgets.slint`
+  for the styles Dawn might ship with (only found `RadioButtonImpl` /
+  `RadioGroupImpl` internals while checking), and a plain clickable row
+  highlighted by comparing `disk.device == selected-device` needed no
+  such confirmation. Revisit if a real `RadioButton` turns out to work
+  fine — it would read more clearly.
+
+- **The Disk screen's Manual-mode toggle exists but stays disabled**,
+  and `state::build_install_plan` always sets `DiskMode::Erase`
+  regardless of what the (currently unreachable) toggle would say.
+  Manual mode needs partition assignments this screen has no UI for
+  yet — that's M7. Once M7 adds the assignment table, both the toggle
+  and `build_install_plan` need revisiting together.
+
+- **Keyboard layout and timezone use a `ComboBox` with a small fixed
+  list**, not the full X11 layout list or IANA zone database. SPEC.md
+  asks for a "live preview field" (keyboard) and a "searchable list"
+  (timezone) — the preview field exists (plain text echo, no real
+  layout remapping yet); the searchable list is deferred, since neither
+  a layout list nor timezone database is wired up as a real data source
+  yet. The fixed list includes every value M2's own tests need
+  (`us`/`""`, `Europe/Berlin`).
+
+- **Network screen mocks Wi-Fi with a plain name/password `LineEdit`
+  pair**, not a real scan-and-join flow. SPEC.md's own milestone table
+  puts "NetworkManager Wi-Fi screen" under M3, alongside the socket
+  protocol and pkexec — the D-Bus wiring belongs there, not M2.
+
+- **Installing and Done screens are static placeholders** (a progress
+  bar pinned at 0 and a fixed message, an unconditional "all done").
+  Real progress/log/error events arrive over the socket in M3
+  (SPEC.md's wire protocol); M2's Done-when only asks that all nine
+  screens exist and clicking through builds a valid plan, which happens
+  entirely before Installing is ever reached.
+
+- **`deny.toml`'s allow-list grew by six licences** (`GPL-3.0-only`,
+  `BSD-2-Clause`, `BSD-3-Clause`, `BSL-1.0`, `ISC`, `Zlib`) and ignores
+  one advisory (`RUSTSEC-2026-0192`, `ttf-parser` unmaintained, no
+  vulnerability, no safe upgrade, buried under winit's Wayland
+  decoration rendering). Slint pulls in a much larger dependency tree
+  than `plan`/`backend` needed alone (winit, resvg, arboard, atspi,
+  zbus, ...); every added licence is a standard permissive OSI licence,
+  checked against the actual resolved dependency tree with
+  `cargo metadata`, not guessed.
+
 ## M0
 
 - **Repo layout is the repo root, not a nested `dawn/` folder.** SPEC.md's

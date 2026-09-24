@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, ComboBox, LineEdit } from "std-widgets.slint";
+
+// SPEC.md: "Layout and variant | Live preview field"
+export component KeyboardScreen inherits VerticalLayout {
+    in-out property <string> layout;
+    in-out property <string> variant;
+    in-out property <string> preview-text;
+
+    callback back();
+    callback next();
+
+    padding: 32px;
+    spacing: 16px;
+
+    Text { text: "Keyboard"; font-size: 22px; font-weight: 700; }
+
+    Text { text: "Layout"; }
+    ComboBox {
+        model: ["us", "de", "fr", "gb"];
+        current-value: layout;
+        selected(value) => { layout = value; }
+    }
+
+    Text { text: "Variant"; }
+    LineEdit {
+        text <=> variant;
+        placeholder-text: "(none)";
+    }
+
+    Text { text: "Try it out"; }
+    LineEdit {
+        text <=> preview-text;
+        placeholder-text: "Type here to check your layout";
+    }
+
+    Rectangle { vertical-stretch: 1; }
+
+    HorizontalLayout {
+        spacing: 12px;
+        Button { text: "Back"; clicked => { back(); } }
+        Rectangle { horizontal-stretch: 1; }
+        Button { text: "Next"; primary: true; enabled: layout != ""; clicked => { next(); } }
+    }
+}

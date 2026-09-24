@@ -11,6 +11,16 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
     "GPL-3.0-or-later",
+    # Added with Slint (M2): its own dual-licensing offers GPL-3.0-only
+    # as one satisfying branch, and it pulls in a much larger tree
+    # (winit, resvg, arboard, ...) than plan/backend needed alone —
+    # every one of these is a standard permissive OSI license.
+    "GPL-3.0-only",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Zlib",
 ]
 confidence-threshold = 0.9
 
@@ -23,6 +33,11 @@ allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
+# ttf-parser (deep under Slint's winit backend, via sctk-adwaita's
+# Wayland client-side-decoration font rendering) is flagged unmaintained
+# with no safe upgrade available yet. Not a vulnerability — tracked, not
+# blocking, until winit's dependency tree moves off it.
+ignore = ["RUSTSEC-2026-0192"]
 
 [sources]
 unknown-registry = "deny"

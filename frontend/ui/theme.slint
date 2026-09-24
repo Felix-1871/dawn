@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Branding is runtime-only (SPEC.md "Branding & configuration"): every
+// value here starts as a placeholder and is overwritten from
+// branding.toml by Rust at startup, so a new branding folder never
+// needs a rebuild. Screens read from this global instead of
+// hard-coding colours or the product name.
+export global Theme {
+    in-out property <string> product-name: "Dawn";
+    in-out property <string> version-string: "";
+    in-out property <color> accent: #5b8dee;
+    in-out property <string> website: "";
+    in-out property <string> support-url: "";
+    in-out property <image> logo;
+    in-out property <image> icon;
+    in-out property <string> welcome-text: "Welcome to your new system.";
+}

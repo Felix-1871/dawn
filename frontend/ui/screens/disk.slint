@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, CheckBox } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+
+export struct DiskInfo {
+    device: string,
+    model: string,
+    size-gib: int,
+    serial: string,
+}
+
+// SPEC.md: "Target disk, Erase or Manual mode, Secure Boot setup |
+// Shows model, size and serial; hides the live USB; Secure Boot
+// checkbox appears only in Setup Mode, checked by default." Manual
+// mode's partition-assignment table is M7 scope; the toggle exists
+// here but stays disabled until then.
+export component DiskScreen inherits VerticalLayout {
+    in property <[DiskInfo]> disks;
+    in-out property <string> selected-device;
+    in-out property <string> selected-model;
+    in-out property <string> mode: "erase";
+    in property <bool> is-setup-mode;
+    in-out property <bool> secure-boot-enroll;
+
+    callback back();
+    callback next();
+
+    padding: 32px;
+    spacing: 16px;
+
+    Text { text: "Disk"; font-size: 22px; font-weight: 700; }
+    Text { text: "Choose the disk to install onto. Erase mode wipes it completely."; wrap: word-wrap; }
+
+    for disk in disks: Rectangle {
+        border-radius: 6px;
+        border-width: 2px;
+        border-color: disk.device == selected-device ? Theme.accent : #cccccc;
+        background: disk.device == selected-device ? Theme.accent.with-alpha(0.08) : transparent;
+        height: 64px;
+
+        TouchArea {
+            clicked => {
+                selected-device = disk.device;
+                selected-model = disk.model;
+            }
+        }
+
+        VerticalLayout {
+            padding: 10px;
+            Text { text: "\{disk.model} — \{disk.size-gib} GiB"; font-weight: 600; }
+            Text { text: "Serial \{disk.serial}"; font-size: 12px; }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 16px;
+        Text { text: "Mode:"; vertical-alignment: center; }
+        Button { text: "Erase"; primary: mode == "erase"; clicked => { mode = "erase"; } }
+        Button { text: "Manual (coming soon)"; enabled: false; }
+    }
+
+    if is-setup-mode: CheckBox {
+        text: "Set up Secure Boot with LuminOS keys";
+        checked <=> secure-boot-enroll;
+    }
+
+    Rectangle { vertical-stretch: 1; }
+
+    HorizontalLayout {
+        spacing: 12px;
+        Button { text: "Back"; clicked => { back(); } }
+        Rectangle { horizontal-stretch: 1; }
+        Button {
+            text: "Next";
+            primary: true;
+            enabled: selected-device != "";
+            clicked => { next(); }
+        }
+    }
+}
