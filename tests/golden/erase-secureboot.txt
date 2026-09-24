@@ -2,6 +2,7 @@
 ==> Step 1: Validate plan and re-probe the disk
 lsblk --json -o NAME,SIZE,MODEL,MOUNTPOINT /dev/disk/by-id/nvme-EXAMPLE_SERIAL
 check the repositories in /etc/pacman.conf are reachable
+check the firmware is in Secure Boot Setup Mode
 ==> Step 2: Partition the disk
 sfdisk --wipe always /dev/disk/by-id/nvme-EXAMPLE_SERIAL
     <<< label: gpt
@@ -32,8 +33,15 @@ uncomment "en_US.UTF-8 UTF-8" in /mnt/target/etc/locale.gen
 arch-chroot /mnt/target locale-gen
 write /mnt/target/etc/locale.conf
     <<< LANG=en_US.UTF-8
-write /mnt/target/etc/vconsole.conf
-    <<< KEYMAP=us
+write /mnt/target/etc/vconsole.conf with the console keymap for us from /mnt/target/usr/share/systemd/kbd-model-map
+write /mnt/target/etc/X11/xorg.conf.d/00-keyboard.conf
+    <<< # Written by dawn-backend in systemd-localed's format; change it with
+    <<< # localectl set-x11-keymap.
+    <<< Section "InputClass"
+    <<<         Identifier "system-keyboard"
+    <<<         MatchIsKeyboard "on"
+    <<<         Option "XkbLayout" "us"
+    <<< EndSection
 symlink /mnt/target/etc/localtime -> /usr/share/zoneinfo/Europe/Berlin
 write /mnt/target/etc/hostname
     <<< ada-laptop
@@ -72,7 +80,7 @@ mkdir -p /mnt/target/boot/EFI/Linux
 arch-chroot /mnt/target mkinitcpio -P
 ==> Step 10: Secure Boot: create keys, sign, enroll
 arch-chroot /mnt/target sbctl create-keys
-arch-chroot /mnt/target sbctl sign -s /boot/EFI/systemd/systemd-bootx64.efi
+arch-chroot /mnt/target sbctl sign -s -o /usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed /usr/lib/systemd/boot/efi/systemd-bootx64.efi
 arch-chroot /mnt/target sbctl sign -s /boot/EFI/Linux/arch-linux.efi
 arch-chroot /mnt/target sbctl sign -s /boot/EFI/Linux/arch-linux-fallback.efi
 arch-chroot /mnt/target sbctl enroll-keys --microsoft

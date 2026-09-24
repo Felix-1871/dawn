@@ -168,6 +168,21 @@ pub enum Action {
     CheckReposReachable {
         pacman_conf: String,
     },
+    /// Writes `<root>/etc/vconsole.conf` with the console keymap systemd's
+    /// `kbd-model-map` under `root` pairs with this XKB layout and
+    /// variant, as `localectl set-x11-keymap` would pick it, or `us` when
+    /// the table has no such layout. Console keymaps and XKB layouts are
+    /// named differently (`gb` is `uk` on the console), and the table is
+    /// the installed system's own, so this is decided at run time.
+    WriteConsoleKeymap {
+        root: String,
+        layout: String,
+        variant: String,
+    },
+    /// Checks the firmware is in Secure Boot Setup Mode, which enrolling
+    /// keys needs, so an install asking for it fails in step 1 instead of
+    /// step 10.
+    CheckSetupMode,
 }
 
 /// Shell-style quoting for display only — never used to build a shell
@@ -246,6 +261,22 @@ pub fn format_action(action: &Action) -> String {
         Action::CheckReposReachable { pacman_conf } => {
             format!("check the repositories in {pacman_conf} are reachable")
         }
+        Action::WriteConsoleKeymap {
+            root,
+            layout,
+            variant,
+        } => {
+            let xkb = if variant.is_empty() {
+                layout.clone()
+            } else {
+                format!("{layout} ({variant})")
+            };
+            format!(
+                "write {root}/etc/vconsole.conf with the console keymap for {xkb} from {root}{}",
+                plan::keymap::KBD_MODEL_MAP
+            )
+        }
+        Action::CheckSetupMode => "check the firmware is in Secure Boot Setup Mode".to_string(),
     }
 }
 
@@ -262,6 +293,12 @@ pub enum RunnerError {
         program: String,
         status: i32,
         stderr: String,
+    },
+    #[error("failed to read {path}: {source}")]
+    Read {
+        path: String,
+        #[source]
+        source: std::io::Error,
     },
     #[error("failed to write {path}: {source}")]
     Write {
@@ -287,6 +324,8 @@ pub enum RunnerError {
     Toml { path: String, message: String },
     #[error("no mirror answered for: {}", .0.join(", "))]
     ReposUnreachable(Vec<String>),
+    #[error("the firmware isn't in Secure Boot Setup Mode, which setting up Secure Boot needs")]
+    NotInSetupMode,
     #[error("cancelled")]
     Cancelled,
 }
@@ -379,6 +418,18 @@ impl Runner for RealRunner {
             } => set_toml_table(path, table, entries),
             Action::CheckReposReachable { pacman_conf } => {
                 check_repos_reachable(pacman_conf, sink, &self.cancel)
+            }
+            Action::WriteConsoleKeymap {
+                root,
+                layout,
+                variant,
+            } => write_console_keymap(root, layout, variant, sink),
+            Action::CheckSetupMode => {
+                if crate::probe::probe_firmware().setup_mode {
+                    Ok(())
+                } else {
+                    Err(RunnerError::NotInSetupMode)
+                }
             }
         }
     }
@@ -637,7 +688,10 @@ fn uncomment_line(path: &str, pattern: &str) -> Result<(), RunnerError> {
         source,
     };
 
-    let original = std::fs::read_to_string(path).map_err(write_err)?;
+    let original = std::fs::read_to_string(path).map_err(|source| RunnerError::Read {
+        path: path.to_string(),
+        source,
+    })?;
     if original.lines().any(|line| line.trim() == pattern) {
         return Ok(());
     }
@@ -744,7 +798,7 @@ fn set_toml_table(
     table: &str,
     entries: &[(String, String)],
 ) -> Result<(), RunnerError> {
-    let original = std::fs::read_to_string(path).map_err(|source| RunnerError::Write {
+    let original = std::fs::read_to_string(path).map_err(|source| RunnerError::Read {
         path: path.to_string(),
         source,
     })?;
@@ -766,12 +820,36 @@ fn set_toml_table(
     })
 }
 
+fn write_console_keymap(
+    root: &str,
+    layout: &str,
+    variant: &str,
+    sink: &mut dyn Sink,
+) -> Result<(), RunnerError> {
+    let map_path = format!("{root}{}", plan::keymap::KBD_MODEL_MAP);
+    let map = std::fs::read_to_string(&map_path).map_err(|source| RunnerError::Read {
+        path: map_path.clone(),
+        source,
+    })?;
+    let keymap = plan::keymap::console_keymap(&plan::keymap::parse(&map), layout, variant)
+        .unwrap_or_else(|| {
+            sink.line(&format!(
+                "{map_path} has no console keymap for {layout}; using us"
+            ));
+            "us".to_string()
+        });
+    write_file(
+        &format!("{root}/etc/vconsole.conf"),
+        &format!("KEYMAP={keymap}\n"),
+    )
+}
+
 fn check_repos_reachable(
     pacman_conf: &str,
     sink: &mut dyn Sink,
     cancel: &Cancel,
 ) -> Result<(), RunnerError> {
-    let conf = std::fs::read_to_string(pacman_conf).map_err(|source| RunnerError::Write {
+    let conf = std::fs::read_to_string(pacman_conf).map_err(|source| RunnerError::Read {
         path: pacman_conf.to_string(),
         source,
     })?;
@@ -1338,6 +1416,74 @@ mod tests {
             result.unwrap_err(),
             RunnerError::MissingLinkTarget(_)
         ));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn keymap_root() -> std::path::PathBuf {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(root.join("usr/share/systemd")).unwrap();
+        std::fs::write(
+            root.join("usr/share/systemd/kbd-model-map"),
+            "# consolelayout\txlayout\txmodel\txvariant\txoptions\tbcp47\n\
+             uk\tgb\tpc105\t-\tterminate:ctrl_alt_bksp\ten-GB\n\
+             de\tde\tpc105\t-\tterminate:ctrl_alt_bksp\tde-DE,de\n\
+             de-latin1-nodeadkeys\tde\tpc105\tnodeadkeys\tterminate:ctrl_alt_bksp\t-\n",
+        )
+        .unwrap();
+        root
+    }
+
+    fn console_keymap_for(
+        root: &std::path::Path,
+        layout: &str,
+        variant: &str,
+    ) -> (String, Recorder) {
+        let (result, recorder) = run(&Action::WriteConsoleKeymap {
+            root: root.to_str().unwrap().to_string(),
+            layout: layout.to_string(),
+            variant: variant.to_string(),
+        });
+        result.unwrap();
+        let written = std::fs::read_to_string(root.join("etc/vconsole.conf")).unwrap();
+        (written, recorder)
+    }
+
+    #[test]
+    fn writes_the_console_keymap_the_table_pairs_with_the_layout() {
+        let root = keymap_root();
+        assert_eq!(console_keymap_for(&root, "gb", "").0, "KEYMAP=uk\n");
+        assert_eq!(
+            console_keymap_for(&root, "de", "nodeadkeys").0,
+            "KEYMAP=de-latin1-nodeadkeys\n"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_layout_without_a_console_keymap_gets_us_and_says_so() {
+        let root = keymap_root();
+        let (written, recorder) = console_keymap_for(&root, "ara", "");
+        assert_eq!(written, "KEYMAP=us\n");
+        assert!(
+            recorder
+                .lines
+                .iter()
+                .any(|line| line.contains("no console keymap for ara")),
+            "{:?}",
+            recorder.lines
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_missing_keymap_table_is_an_error() {
+        let root = unique_temp_dir();
+        let (result, _) = run(&Action::WriteConsoleKeymap {
+            root: root.to_str().unwrap().to_string(),
+            layout: "de".to_string(),
+            variant: String::new(),
+        });
+        assert!(matches!(result.unwrap_err(), RunnerError::Read { .. }));
         std::fs::remove_dir_all(&root).ok();
     }
 

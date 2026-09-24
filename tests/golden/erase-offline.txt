@@ -38,8 +38,15 @@ uncomment "en_US.UTF-8 UTF-8" in /mnt/target/etc/locale.gen
 arch-chroot /mnt/target locale-gen
 write /mnt/target/etc/locale.conf
     <<< LANG=en_US.UTF-8
-write /mnt/target/etc/vconsole.conf
-    <<< KEYMAP=us
+write /mnt/target/etc/vconsole.conf with the console keymap for us from /mnt/target/usr/share/systemd/kbd-model-map
+write /mnt/target/etc/X11/xorg.conf.d/00-keyboard.conf
+    <<< # Written by dawn-backend in systemd-localed's format; change it with
+    <<< # localectl set-x11-keymap.
+    <<< Section "InputClass"
+    <<<         Identifier "system-keyboard"
+    <<<         MatchIsKeyboard "on"
+    <<<         Option "XkbLayout" "us"
+    <<< EndSection
 symlink /mnt/target/etc/localtime -> /usr/share/zoneinfo/Europe/Berlin
 write /mnt/target/etc/hostname
     <<< ada-laptop
