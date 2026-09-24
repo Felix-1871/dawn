@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Shared `InstallPlan` types, JSON schema and validation, plus the other
-//! types both binaries share: `installer.toml`'s ([`config`]) and the
-//! socket protocol's ([`protocol`]). No I/O: reading plan and config
-//! files, probing disks and talking to the backend socket are the
-//! frontend's and backend's job, not this crate's. See SPEC.md
-//! "Architecture".
+//! Shared `InstallPlan` types, JSON schema and validation, plus what
+//! else both binaries share: `installer.toml`'s types ([`config`]), the
+//! socket protocol's ([`protocol`]) and systemd's keyboard table
+//! ([`keymap`]). No I/O: reading plan and config files, probing disks
+//! and talking to the backend socket are the frontend's and backend's
+//! job, not this crate's. See SPEC.md "Architecture".
 
 pub mod config;
 mod install_plan;
+pub mod keymap;
 pub mod protocol;
 mod redacted;
 pub mod validate;
