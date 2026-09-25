@@ -4,10 +4,49 @@ Log of choices made during implementation where SPEC.md didn't spell out the
 answer, or where a concrete detail had to be picked to make code compile.
 Newest first.
 
+## M4 follow-ups
+
+The user's answers to M4's open questions, after M4 merged.
+
+- **The Keyboard screen switches the live session to its layout after
+  all.** The user changed their mind about M4's first entry, below.
+  Reaching the Keyboard screen switches the session to the layout it
+  shows, and picking one switches to that, so the preview field and the
+  password typed on the Account screen use the layout the new system
+  will have. Dawn talks to Hyprland's control socket itself, the way
+  `hyprctl` does (no process to start): `keyword`, clearing the variant
+  first, since each change recompiles the keymap and the old variant
+  may not exist for the new layout; or, when a `hyprland.lua`
+  configuration refuses `keyword`, one Lua `eval` of `hl.config` that
+  Hyprland applies with its `r` flag. Outside Hyprland, and in every
+  test, nothing is switched: the tests record the switches instead, so
+  they never touch the machine's own session. A switch that fails says
+  so under the preview field; the install goes on.
+
+- **Closing Dawn's window while an install runs asks first.** Asked the
+  user. The Installing screen asks "Stop the install?", with Keep
+  installing and Stop and quit; stopping quits, which the backend
+  treats as cancel (M3: it stops the step and unmounts the target).
+  Closing on any other screen quits straight away, as before.
+
+- **Six countries' main timezones come from a small table** (M4):
+  confirmed by the user.
+
+- **The Done screen's Secure Boot link stays the Arch Wiki's sbctl
+  section**, since LuminOS has no page of its own for it and doesn't
+  plan one.
+
+- **The e2e test keeps getting copy-to-RAM from archiso's default** by
+  booting the ISO from a USB stick; the user doesn't need a boot with a
+  literal `copytoram=y`.
+
+- **The QEMU end-to-end job stays on every push**, not only in M6's
+  nightly run (the user; M1 had it on every push only until M6).
+
 ## M4
 
 - **The Keyboard screen's preview field types in the live session's own
-  layout.** Asked the user, who chose this over having Dawn switch the
+  layout.** (Reversed in the M4 follow-ups, above.) Asked the user, who chose this over having Dawn switch the
   live Hyprland session to the picked layout through Hyprland's IPC
   socket. The field stays a plain text field, as in M2. The trade-off
   the user took: a password typed on the Account screen goes in with
@@ -129,7 +168,7 @@ Newest first.
   needs no compositor.
 
 - **If the GUI goes away mid-install, the root backend stops.** Asked
-  the user. A closed socket (crash, closed window, lost connection) is
+  the user. (From the M4 follow-ups, closing the window asks first.) A closed socket (crash, closed window, lost connection) is
   treated like `cancel`: the running step's processes are killed, the
   target is unmounted, and the backend exits. The disk is left partly
   installed, as with any failure, but root work never continues
@@ -618,7 +657,8 @@ Newest first.
   time. A locale missing from the file entirely is still an error.
   Agreed with the user after M1 merged.
 
-- **The QEMU end-to-end job runs on every push until M6.** SPEC.md's
+- **The QEMU end-to-end job runs on every push until M6.** (The user
+  kept it on every push after that too, in the M4 follow-ups.) SPEC.md's
   Testing table puts end-to-end runs nightly, and M6 is where the
   nightly workflow lands; until then the job (about 9 minutes) stays on
   every push, so each milestone's PR shows it. Agreed with the user.

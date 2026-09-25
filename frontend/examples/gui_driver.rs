@@ -43,6 +43,7 @@ use std::time::Duration;
 use driver::{Answers, Network, click, fill_to_summary, wait_for_outcome};
 use frontend::backend::{Backend, BackendCommand, EventSink, Firmware, SocketBackend};
 use frontend::data::DataFiles;
+use frontend::live_session::NoLiveKeyboard;
 use frontend::wifi::NetworkManager;
 use frontend::{AppWindow, Services, build_ui, home_dir, load_config};
 use plan::InstallPlan;
@@ -86,6 +87,9 @@ async fn drive(scenario: &str, target: &str, dry_run: bool) -> Result<(), String
         wifi: Arc::new(NetworkManager::new()),
         save_log_dir: home_dir(),
         data_files: DataFiles::system(),
+        // A test never switches a real session's keyboard; the VM has no
+        // Hyprland anyway.
+        live_keyboard: Arc::new(NoLiveKeyboard),
     };
     let app = build_ui(&config, services).map_err(|err| err.to_string())?;
     let answers = Answers::fixture(target);
