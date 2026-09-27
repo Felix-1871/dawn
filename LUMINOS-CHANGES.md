@@ -15,7 +15,13 @@ DECISIONS.md.
 ### `luminos-base` and `luminos-desktop`
 
 The meta-packages both the ISO and online installs are built from
-(SPEC.md). Neither exists yet.
+(SPEC.md). Their PKGBUILDs live in
+[Lumin-OS/luminos-packages](https://github.com/Lumin-OS/luminos-packages).
+*`luminos-base` is done in
+[luminos-packages#1](https://github.com/Lumin-OS/luminos-packages/pull/1):
+the dependencies below, and the HOOKS as a drop-in in
+`/etc/mkinitcpio.conf.d/`, since the mkinitcpio package owns
+`/etc/mkinitcpio.conf`. `luminos-desktop` doesn't exist yet.*
 
 - `luminos-base` must depend on:
   - `btrfs-progs`. Dawn's root filesystem is btrfs, and mkinitcpio's
@@ -67,6 +73,11 @@ repository is signed with. It belongs on the ISO and in `luminos-base`.
 An offline install's cleanup runs
 `pacman-key --populate archlinux luminos`, which fails without it, and
 online installs need the key to verify packages from this repository.
+*Done in
+[luminos-packages#1](https://github.com/Lumin-OS/luminos-packages/pull/1):
+the key is `9CECC70BA1BC755E24211DADF89429CD92739788` ("LuminOS"),
+expiring on 2029-09-26, and the package imports it on install and
+upgrade, as `archlinux-keyring` does.*
 
 ### Signing
 
@@ -77,7 +88,13 @@ Today the packages carry no `.sig` files, and `dbupdate.sh` renames the
 database signature to `luminos-repository-db.sig`, a name pacman never
 asks for; it looks for `luminos-repository.db.sig`. Sign the packages
 (`makepkg --sign`, or `repo-add` with signatures included) and keep the
-names pacman expects.
+names pacman expects. *Done for the database in
+[luminos-repository#1](https://github.com/Lumin-OS/luminos-repository/pull/1):
+`dbupdate.sh` signs it with the repository key and names the signature
+`luminos-repository.db.sig`. Packages get signed when they're built
+(`makepkg --sign`, as luminos-packages' README says). The older
+packages already in `x86_64/` are still unsigned, so the ISO's
+`SigLevel` stays optional for now.*
 
 ### `luminos-dawn`
 
