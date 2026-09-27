@@ -4,6 +4,40 @@ Log of choices made during implementation where SPEC.md didn't spell out the
 answer, or where a concrete detail had to be picked to make code compile.
 Newest first.
 
+## Planned for M5
+
+Decided with the user while reconciling the LuminOS workspace's notes
+with the ISO work in
+[LuminOS#3](https://github.com/Lumin-OS/LuminOS/pull/3). None of it is in
+Dawn's code yet; it belongs to M5's ISO integration. LUMINOS-CHANGES.md
+has the LuminOS side.
+
+- **The keyboard layout goes into `~/.config/hypr/keyboard.lua`, not
+  `keyboard.conf`.** Hyprland 0.56, the version Arch ships, uses
+  `hyprland.lua` whenever it exists and treats `hyprland.conf` as
+  legacy, and the ISO's live session is already configured in Lua.
+  `luminos-desktop`'s default `hyprland.lua` loads the file with
+  `require("keyboard")`, so Dawn writes it as Lua: an `hl.config` call
+  setting `input`'s `kb_layout` and `kb_variant`. This replaces M1's
+  `keyboard.conf`.
+- **greetd reads `/etc/greetd/luminos.toml`, and autologin goes there.**
+  The greetd package owns `/etc/greetd/config.toml`, so
+  `luminos-desktop` can't ship it; it ships its own file and a
+  `greetd.service` drop-in that passes `--config`. Dawn's autologin adds
+  `[initial_session]` to that file instead of `config.toml`.
+- **The autologin session command is `start-hyprland`**, not
+  `Hyprland`: Hyprland 0.56 calls starting without it "strongly
+  discouraged", and the live session starts that way.
+- **`luminos-live` joins `[offline_cleanup] remove_packages` in the ISO
+  build that starts installing it.** LuminOS#3 makes the ISO install it.
+  An ISO with only one of the two either keeps the live-only parts on
+  offline installs or fails step 6's `pacman -R`, so the two merge
+  together.
+- **Step 6 stops deleting the old tty1 autologin drop-in in `/etc`.**
+  LuminOS#3 moved it into `luminos-live`, at
+  `/usr/lib/systemd/system/getty@tty1.service.d/autologin.conf`, which
+  removing the package takes away, so the deletion is dead code.
+
 ## M4 follow-ups
 
 The user's answers to M4's open questions, after M4 merged.
